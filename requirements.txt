@@ -1,0 +1,7 @@
+opencv-python==4.8.1.78
+mediapipe==0.10.21
+numpy==1.26.4
+torch==2.2.1
+torchvision==0.17.1
+pillow==10.0.1
+gradio==4.44.1
