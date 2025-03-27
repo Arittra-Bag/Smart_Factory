@@ -107,6 +107,4 @@ def create_interface():
 
 if __name__ == "__main__":
     demo = create_interface()
-    demo.queue().launch(server_name="0.0.0.0", 
-                       server_port=10000, 
-                       share=False) 
+    demo.queue().launch(server_port=7860, share=False) 
