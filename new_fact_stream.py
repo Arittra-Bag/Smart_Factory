@@ -1,3 +1,4 @@
+import streamlit as st
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -199,6 +200,8 @@ class SmartFactoryController:
 
         return frame
 
+    # ...existing code...
+
     def draw_industrial_hud(self, frame):
         """Draw industrial HUD with production metrics"""
         # Create a black panel on the right side
@@ -217,26 +220,26 @@ class SmartFactoryController:
         
         # Draw title
         cv2.putText(frame, "SMART FACTORY", (int(x_pos), int(y_pos)), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         y_pos += 30
         cv2.putText(frame, "CONTROL SYSTEM", (int(x_pos), int(y_pos)), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         y_pos += int(line_spacing * 1.2)
 
         # System Status with color
         status_text = f"Status: {self.machine_status}"
         status_color = (0, 255, 0) if self.machine_status == "RUNNING" else \
-                      (0, 0, 255) if self.machine_status == "EMERGENCY" else \
-                      (255, 255, 0)
+                    (0, 0, 255) if self.machine_status == "EMERGENCY" else \
+                    (255, 255, 0)
         cv2.putText(frame, status_text, (int(x_pos), int(y_pos)),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
         
         # Show emergency reset progress if active
         if self.emergency_mode and self.emergency_reset_start > 0:
             progress = min((time.time() - self.emergency_reset_start) / self.emergency_reset_duration * 100, 100)
             y_pos += 20
             cv2.putText(frame, f"Reset Progress: {progress:.0f}%", (int(x_pos), int(y_pos)),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         
         y_pos += line_spacing
 
@@ -247,15 +250,17 @@ class SmartFactoryController:
 
         # Production Metrics
         cv2.putText(frame, f"Production: {self.production_count}", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         y_pos += line_spacing
 
         cv2.putText(frame, f"Quality: {self.quality_score:.1f}%", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         y_pos += line_spacing
 
-        cv2.putText(frame, f"Defects: {self.defect_count}", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # Calculate defect rate
+        defect_rate = (self.defect_count / self.batch_size) * 100 if self.batch_size > 0 else 0
+        cv2.putText(frame, f"Defect Rate: {defect_rate:.1f}%", 
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         y_pos += line_spacing
 
         # Draw divider
@@ -265,16 +270,16 @@ class SmartFactoryController:
 
         # Gesture Controls Guide
         cv2.putText(frame, "GESTURE CONTROLS:", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         y_pos += line_spacing
         cv2.putText(frame, "Fist - Emergency Stop", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         y_pos += line_spacing
         cv2.putText(frame, "Peace - Start Production", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         y_pos += line_spacing
         cv2.putText(frame, "Palm - Quality Check", 
-                   (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
         y_pos += line_spacing * 1.2
 
         # Current Hand Status
@@ -290,56 +295,55 @@ class SmartFactoryController:
                 status_text += "PALM"
                 status_color = (255, 255, 0)
             cv2.putText(frame, status_text, (int(x_pos), int(y_pos)),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
         else:
             cv2.putText(frame, "Current Hand: NONE", (int(x_pos), int(y_pos)),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
 
         return frame
 
+    # ...existing code...
+
     def plot_defect_rate(self):
-        """Plot batch size vs. defect rate."""
+        """Return defect rate chart as a Matplotlib figure"""
         if os.path.exists(self.safety_check_records):
             data = pd.read_csv(self.safety_check_records)
             if not data.empty:
-                plt.figure(figsize=(10, 6))
-                plt.plot(data["Batch Size"], data["Defect Rate"], marker='o', label="Defect Rate")
-                plt.xlabel("Batch Size")
-                plt.ylabel("Defect Rate (%)")
-                plt.title("Batch Size vs. Defect Rate")
-                plt.legend()
-                plt.grid(True)
-                plt.show()
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.plot(data["Batch Size"], data["Defect Rate"], marker='o', label="Defect Rate")
+                ax.set_xlabel("Batch Size")
+                ax.set_ylabel("Defect Rate (%)")
+                ax.set_title("Batch Size vs. Defect Rate")
+                ax.legend()
+                ax.grid(True)
+                return fig
             else:
-                print("No data available to plot.")
+                st.warning("No data available to plot.")
         else:
-            print("Safety check records file not found.")
+            st.error("Safety check records file not found.")
+        return None
 
     def process_frame(self, frame):
-        # Calculate FPS
         self.calculate_fps()
         
-        # Convert BGR to RGB
+        # Resize the raw webcam feed first (before anything else)
+        frame = cv2.resize(frame, (960, 720))  # Leave space for HUD (1280 - 960 = 320px)
+
+        # Convert to RGB for MediaPipe
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Process the frame
         results = self.hands.process(rgb_frame)
-        
-        # Create output frame
+
         output_frame = frame.copy()
-        
-        # Reset current gesture if no hands detected
+
+        # Gesture logic
         if not results.multi_hand_landmarks:
             self.current_gesture = None
-            self.emergency_reset_start = 0  # Reset emergency reset timer
+            self.emergency_reset_start = 0
             if not self.emergency_mode:
                 self.machine_status = "STANDBY"
-        
+
         if results.multi_hand_landmarks:
-            # Process the first hand
             hand_landmarks = results.multi_hand_landmarks[0]
-            
-            # Draw hand landmarks with industrial theme
             self.mp_draw.draw_landmarks(
                 output_frame,
                 hand_landmarks,
@@ -347,14 +351,11 @@ class SmartFactoryController:
                 self.mp_draw.DrawingSpec(color=(0, 255, 255), thickness=2, circle_radius=2),
                 self.mp_draw.DrawingSpec(color=(255, 255, 0), thickness=2)
             )
-            
-            # Detect gestures and apply effects
+
             gesture = self.detect_gestures(hand_landmarks)
             if gesture:
-                # Update current gesture immediately
                 self.current_gesture = gesture
-                
-                # Handle emergency reset with palm gesture
+
                 if gesture == "quality_check" and self.emergency_mode:
                     if self.emergency_reset_start == 0:
                         self.emergency_reset_start = time.time()
@@ -364,36 +365,36 @@ class SmartFactoryController:
                         self.emergency_reset_start = 0
                 else:
                     self.emergency_reset_start = 0
-                
-                # Update machine status based on current gesture
+
                 if gesture == "emergency_stop":
                     self.machine_status = "EMERGENCY"
                     self.emergency_mode = True
                 elif gesture == "start_production":
                     if not self.emergency_mode:
                         self.machine_status = "RUNNING"
-                    # Allow production count to increase even in emergency mode
                     if time.time() - self.last_gesture_time > self.gesture_cooldown:
                         self.production_count += 1
                 elif gesture == "quality_check":
                     if not self.emergency_mode:
                         self.machine_status = "QUALITY CHECK"
-                # Update batch size for production
+
                 if gesture == "start_production":
                     if not self.emergency_mode:
                         self.batch_size += 1
-                        self.safety_check_done = False  # Reset safety check for new batch
-                
-                # Update stats with cooldown
+                        self.safety_check_done = False
+
                 if time.time() - self.last_gesture_time > self.gesture_cooldown:
                     self.gesture_stats[gesture] += 1
                     self.last_gesture_time = time.time()
-                
+
                 output_frame = self.apply_industrial_effect(output_frame, gesture)
-        
-        # Draw industrial HUD
+
+        # ✅ Apply HUD after camera frame is resized
         output_frame = self.draw_industrial_hud(output_frame)
-            
+
+        # ✅ Final composite size with HUD should be exactly 1280x720
+        output_frame = cv2.resize(output_frame, (1280, 720))
+
         return output_frame
 
     def calculate_fps(self):
@@ -443,6 +444,3 @@ def main():
     # Release resources
     cap.release()
     cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main() 
