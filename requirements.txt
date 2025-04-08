@@ -5,3 +5,9 @@ torch==2.2.1
 torchvision==0.17.1
 pillow==10.0.1
 gradio==4.44.1
+streamlit
+streamlit-webrtc
+streamlit-autorefresh
+opencv-python-headless
+matplotlib
+pandas
