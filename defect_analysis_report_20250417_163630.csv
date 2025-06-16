@@ -1,0 +1,14 @@
+DEFECT ANALYSIS REPORT
+Generated on: 2025-04-17 16:36:30.487759
+
+SUMMARY STATISTICS
+Metric,Value
+Total Batches,2
+Average Defect Rate,4.90%
+Max Defect Rate,5.88%
+Min Defect Rate,3.92%
+
+DETAILED DATA
+Batch Size,Defect Rate,Timestamp
+17,5.88235294117647,2025-04-17 16:36:01.074299
+51,3.92156862745098,2025-04-17 16:36:07.351575

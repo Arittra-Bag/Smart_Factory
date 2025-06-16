@@ -14,6 +14,24 @@ warnings.filterwarnings('ignore')
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+import streamlit as st
+from auth_manager import AuthManager
+
+# Initialize session state for camera and production data
+if 'camera' not in st.session_state:
+    st.session_state.camera = None
+if 'production_data' not in st.session_state:
+    st.session_state.production_data = {
+        'production_count': 0,
+        'defect_count': 0,
+        'batch_size': 0,
+        'quality_score': 100.0,
+        'machine_status': "STANDBY",
+        'emergency_mode': False
+    }
+
+# Initialize authentication manager
+auth_manager = AuthManager()
 
 class SmartFactoryController:
     def __init__(self):
@@ -27,7 +45,7 @@ class SmartFactoryController:
         )
         self.mp_draw = mp.solutions.drawing_utils
         
-        # Initialize tracking
+        # Initialize tracking from session state
         self.gesture_stats = defaultdict(int)
         self.last_gesture_time = time.time()
         self.gesture_cooldown = 1.0
@@ -36,22 +54,22 @@ class SmartFactoryController:
         self.frame_count = 0
         self.start_time = time.time()
         
-        # Industrial control states
-        self.machine_status = "STANDBY"  # STANDBY, RUNNING, EMERGENCY
-        self.quality_score = 100.0
-        self.safety_status = "SECURE"
-        self.defect_count = 0
-        self.production_count = 0
-        self.emergency_mode = False
+        # Load production data from session state
+        self.production_count = st.session_state.production_data['production_count']
+        self.defect_count = st.session_state.production_data['defect_count']
+        self.batch_size = st.session_state.production_data['batch_size']
+        self.quality_score = st.session_state.production_data['quality_score']
+        self.machine_status = st.session_state.production_data['machine_status']
+        self.emergency_mode = st.session_state.production_data['emergency_mode']
+        
         self.last_inspection_time = time.time()
-        self.emergency_reset_start = 0  # Track when emergency reset started
-        self.emergency_reset_duration = 3.0  # Seconds to hold palm to reset emergency
+        self.emergency_reset_start = 0
+        self.emergency_reset_duration = 3.0
         
         # Load quality inspection model (simulated)
         self.quality_model = self.load_quality_model()
 
-        # Batch and safety check tracking
-        self.batch_size = 0
+        # Safety check tracking
         self.last_batch_size = 0
         self.safety_check_done = False
         self.safety_check_records = "safety_check_records.csv"
@@ -65,6 +83,27 @@ class SmartFactoryController:
         self.alerts = []
         self.alert_thread = threading.Thread(target=self.alert_monitor, daemon=True)
         self.alert_thread.start()
+
+    def update_session_state(self):
+        """Update session state with current production data"""
+        st.session_state.production_data.update({
+            'production_count': self.production_count,
+            'defect_count': self.defect_count,
+            'batch_size': self.batch_size,
+            'quality_score': self.quality_score,
+            'machine_status': self.machine_status,
+            'emergency_mode': self.emergency_mode
+        })
+
+    def reset_production(self):
+        """Reset all production data"""
+        self.production_count = 0
+        self.defect_count = 0
+        self.batch_size = 0
+        self.quality_score = 100.0
+        self.machine_status = "STANDBY"
+        self.emergency_mode = False
+        self.update_session_state()
 
     def load_quality_model(self):
         """Simulate loading a pre-trained quality inspection model"""
@@ -302,18 +341,75 @@ class SmartFactoryController:
         if os.path.exists(self.safety_check_records):
             data = pd.read_csv(self.safety_check_records)
             if not data.empty:
-                plt.figure(figsize=(10, 6))
-                plt.plot(data["Batch Size"], data["Defect Rate"], marker='o', label="Defect Rate")
-                plt.xlabel("Batch Size")
-                plt.ylabel("Defect Rate (%)")
-                plt.title("Batch Size vs. Defect Rate")
-                plt.legend()
-                plt.grid(True)
-                plt.show()
+                # Create figure with larger size
+                fig, ax = plt.subplots(figsize=(12, 6))
+                
+                # Plot with improved styling
+                ax.plot(data["Batch Size"], data["Defect Rate"], 
+                       marker='o', linewidth=2, markersize=8,
+                       color='#2ecc71', markeredgecolor='white',
+                       markeredgewidth=2)
+                
+                # Customize grid
+                ax.grid(True, linestyle='--', alpha=0.7)
+                
+                # Set labels and title with better fonts
+                ax.set_xlabel("Batch Size", fontsize=12, fontweight='bold')
+                ax.set_ylabel("Defect Rate (%)", fontsize=12, fontweight='bold')
+                ax.set_title("Batch Size vs. Defect Rate Analysis", 
+                           fontsize=14, fontweight='bold', pad=20)
+                
+                # Add mean defect rate line
+                mean_rate = data["Defect Rate"].mean()
+                ax.axhline(y=mean_rate, color='#e74c3c', linestyle='--', alpha=0.8,
+                          label=f'Mean Rate: {mean_rate:.2f}%')
+                
+                # Customize ticks
+                ax.tick_params(axis='both', labelsize=10)
+                
+                # Add legend
+                ax.legend(fontsize=10)
+                
+                # Adjust layout
+                plt.tight_layout()
+                
+                return fig
             else:
-                print("No data available to plot.")
+                return None
         else:
-            print("Safety check records file not found.")
+            return None
+
+    def generate_report(self):
+        """Generate a CSV report of the safety checks"""
+        if os.path.exists(self.safety_check_records):
+            data = pd.read_csv(self.safety_check_records)
+            if not data.empty:
+                # Add summary statistics
+                summary = pd.DataFrame({
+                    'Metric': ['Total Batches', 'Average Defect Rate', 'Max Defect Rate', 'Min Defect Rate'],
+                    'Value': [
+                        len(data),
+                        f"{data['Defect Rate'].mean():.2f}%",
+                        f"{data['Defect Rate'].max():.2f}%",
+                        f"{data['Defect Rate'].min():.2f}%"
+                    ]
+                })
+                
+                # Create report filename with timestamp
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_filename = f"defect_analysis_report_{timestamp}.csv"
+                
+                # Save summary and data
+                with open(report_filename, 'w') as f:
+                    f.write("DEFECT ANALYSIS REPORT\n")
+                    f.write(f"Generated on: {datetime.datetime.now()}\n\n")
+                    f.write("SUMMARY STATISTICS\n")
+                    summary.to_csv(f, index=False)
+                    f.write("\nDETAILED DATA\n")
+                    data.to_csv(f, index=False)
+                
+                return report_filename
+        return None
 
     def process_frame(self, frame):
         # Calculate FPS
@@ -404,45 +500,129 @@ class SmartFactoryController:
             self.start_time = time.time()
 
 def main():
-    print("Initializing Smart Factory Control System...")
-    print("Loading AI models and calibrating sensors...")
-    time.sleep(2)  # Simulate initialization
+    st.set_page_config(
+        page_title="Smart Factory Control",
+        page_icon="🏭",
+        layout="wide"
+    )
+
+    # Authentication check
+    if not auth_manager.authenticate():
+        return
+
+    # Main application interface
+    st.title("Smart Factory Control System")
     
-    # Initialize the camera
-    cap = cv2.VideoCapture(0)
-    
-    # Initialize the controller
-    controller = SmartFactoryController()
-    
-    print("\nSmart Factory Control System Ready!")
-    print("\nGesture Controls:")
-    print("- Fist: Emergency Stop (Immediate machine shutdown)")
-    print("- Peace Sign: Start Production Line")
-    print("- Palm: Trigger Quality Inspection")
-    print("\nPress 'q' to quit")
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Failed to grab frame")
-            break
+    try:
+        # Initialize the camera if not already initialized
+        if st.session_state.camera is None:
+            st.session_state.camera = cv2.VideoCapture(0)
+        
+        # Initialize the controller
+        controller = SmartFactoryController()
+        
+        # Create two columns for the interface
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.header("Live Camera Feed")
+            frame_placeholder = st.empty()
             
-        # Flip the frame horizontally
-        frame = cv2.flip(frame, 1)
+        with col2:
+            # Create containers for dynamic content
+            status_container = st.container()
+            controls_container = st.container()
+            
+            with status_container:
+                st.header("System Status")
+                status_placeholder = st.empty()
+            
+            with controls_container:
+                st.header("Controls")
+                st.write("Gesture Controls:")
+                st.write("- Fist: Emergency Stop")
+                st.write("- Peace Sign: Start Production")
+                st.write("- Palm: Quality Check")
+                
+                # Add Analysis section
+                st.header("Analysis")
+                analysis_col1, analysis_col2 = st.columns(2)
+                
+                with analysis_col1:
+                    if st.button("Generate Graph"):
+                        fig = controller.plot_defect_rate()
+                        if fig:
+                            st.pyplot(fig)
+                        else:
+                            st.warning("No data available for visualization")
+                
+                with analysis_col2:
+                    if st.button("Export Report"):
+                        report_file = controller.generate_report()
+                        if report_file:
+                            with open(report_file, 'r') as f:
+                                st.download_button(
+                                    label="Download Report",
+                                    data=f.read(),
+                                    file_name=report_file,
+                                    mime="text/csv"
+                                )
+                            st.success(f"Report generated: {report_file}")
+                        else:
+                            st.warning("No data available for report generation")
+                
+                if st.button("Emergency Reset"):
+                    controller.reset_production()
+                    st.success("Emergency mode reset successfully")
         
-        # Process the frame
-        output_frame = controller.process_frame(frame)
+        while True:
+            ret, frame = st.session_state.camera.read()
+            if not ret:
+                st.error("Failed to grab frame")
+                break
+                
+            # Flip the frame horizontally
+            frame = cv2.flip(frame, 1)
+            
+            # Process the frame
+            output_frame = controller.process_frame(frame)
+            
+            # Display the frame
+            frame_placeholder.image(output_frame, channels="BGR", use_column_width=True)
+            
+            # Update status with empty container to prevent glitching
+            with status_placeholder.container():
+                st.write(f"Machine Status: {controller.machine_status}")
+                st.write(f"Production Count: {controller.production_count}")
+                st.write(f"Quality Score: {controller.quality_score:.1f}%")
+                st.write(f"Defect Count: {controller.defect_count}")
+                st.write(f"Batch Size: {controller.batch_size}")
+                
+                if controller.emergency_mode:
+                    st.error("⚠️ EMERGENCY STOP ACTIVATED")
+            
+            # Update session state
+            controller.update_session_state()
+            
+            # Check for inactivity
+            if auth_manager.check_inactivity():
+                st.warning("Session expired due to inactivity. Please log in again.")
+                break
+            
+            # Update activity timestamp
+            auth_manager.update_activity()
+            
+            # Add a small delay to prevent high CPU usage
+            time.sleep(0.1)
+            
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
         
-        # Display the frame
-        cv2.imshow('Smart Factory Control System', output_frame)
-        
-        # Break the loop if 'q' is pressed
-        if cv2.waitKey(200) & 0xFF == ord('q'):  # 5 FPS for better gesture recognition
-            break
-    
-    # Release resources
-    cap.release()
-    cv2.destroyAllWindows()
+    finally:
+        # Release camera resources if initialized
+        if st.session_state.camera is not None:
+            st.session_state.camera.release()
+            st.session_state.camera = None
 
 if __name__ == "__main__":
     main() 
