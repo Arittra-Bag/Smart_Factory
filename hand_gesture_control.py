@@ -28,6 +28,12 @@ class HandGestureController:
         self.effect_start_time = 0  # Track when effect started
         self.effect_duration = 2.0  # Duration to maintain effect in seconds
 
+        self.production_started = False  # Track production status
+        self.last_action_time = 0
+        self.action_cooldown = 1.5  # Seconds between gesture activations
+
+
+
     def calculate_fps(self):
         self.frame_count += 1
         if time.time() - self.start_time > 1.0:
@@ -41,6 +47,7 @@ class HandGestureController:
             return None
 
         # Get finger landmarks
+        wrist = hand_landmarks.landmark[self.mp_hands.HandLandmark.WRIST]
         thumb_tip = hand_landmarks.landmark[self.mp_hands.HandLandmark.THUMB_TIP]
         index_tip = hand_landmarks.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
         middle_tip = hand_landmarks.landmark[self.mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
@@ -64,18 +71,25 @@ class HandGestureController:
         peace_sign = (
             index_tip.y < index_pip.y and
             middle_tip.y < middle_pip.y and
-            ring_tip.y > ring_pip.y and
-            pinky_tip.y > pinky_pip.y
+            ring_tip.y > ring_pip.y + 0.02 and  # Clearly bent
+            pinky_tip.y > pinky_pip.y + 0.02 and
+            abs(index_tip.x - middle_tip.x) > 0.03  # Fingers spread apart
         )
+
 
         # Thumbs up (thumb up, other fingers closed)
         thumbs_up = (
             thumb_tip.y < hand_landmarks.landmark[self.mp_hands.HandLandmark.THUMB_IP].y and
-            index_tip.y > index_pip.y and
-            middle_tip.y > middle_pip.y and
-            ring_tip.y > ring_pip.y and
-            pinky_tip.y > pinky_pip.y
+            all([
+                index_tip.y > index_pip.y + 0.02,
+                middle_tip.y > middle_pip.y + 0.02,
+                ring_tip.y > ring_pip.y + 0.02,
+                pinky_tip.y > pinky_pip.y + 0.02
+            ]) and
+            abs(thumb_tip.x - wrist.x) > 0.1 and  # Ensure thumb is extended sideways
+            abs(thumb_tip.y - wrist.y) > 0.1      # Ensure it’s "up"
         )
+
 
         # Palm open (all fingers extended)
         palm_open = (
@@ -200,7 +214,7 @@ class HandGestureController:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         return frame
-
+    
     def process_frame(self, frame):
         # Calculate FPS
         self.calculate_fps()
@@ -218,10 +232,7 @@ class HandGestureController:
         self.multiple_hands_detected = results.multi_hand_landmarks and len(results.multi_hand_landmarks) > 1
         
         if results.multi_hand_landmarks:
-            # Only process the first hand
             hand_landmarks = results.multi_hand_landmarks[0]
-            
-            # Draw hand landmarks
             self.mp_draw.draw_landmarks(
                 output_frame,
                 hand_landmarks,
@@ -229,30 +240,123 @@ class HandGestureController:
                 self.mp_draw.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=2),
                 self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
             )
-            
-            # Detect gestures
+
             gesture = self.detect_gestures(hand_landmarks)
-            
-            # Update gesture statistics and effects
-            if gesture:
-                # Update current gesture and stats if changed
-                if gesture != self.current_gesture:
-                    self.current_gesture = gesture
-                    if time.time() - self.last_gesture_time > self.gesture_cooldown:
-                        self.gesture_stats[gesture] += 1
-                        self.last_gesture_time = time.time()
-                
-                # Always apply the current gesture's effect
-                output_frame = self.apply_gesture_effect(output_frame, gesture)
-            else:
-                self.current_gesture = None
-        else:
+
+            # Only trigger action when the gesture changes
+        if gesture:
+            current_time = time.time()
+
+            if gesture != getattr(self, "last_detected_gesture", None):
+                self.last_detected_gesture = gesture
+                self.last_gesture_time = current_time
+
+                print(f"Detected Gesture: {gesture}")
+
+                # ✌️ Start production if peace and not already running
+                if gesture == "start_production" and not self.production_started:
+                    self.production_started = True
+                    print("✅ Production started")
+
+                # ✊ Emergency stop
+                elif gesture == "emergency_stop" and self.production_started:
+                    self.production_started = False
+                    print("🛑 Emergency stop")
+
+                # ✋ Quality check (same as stop for now)
+                elif gesture == "quality_check" and self.production_started:
+                    self.production_started = False
+                    print("🔍 Quality check triggered")
+
+                # Count gesture
+                self.gesture_stats[gesture] += 1
+
+            output_frame = self.apply_gesture_effect(output_frame, gesture)
+
+        elif not results.multi_hand_landmarks:
+            self.last_detected_gesture = None
             self.current_gesture = None
-            
-        # Draw statistics
+
+
+        # Draw overlay stats
         output_frame = self.draw_stats(output_frame)
-            
         return output_frame
+
+
+    # def process_frame(self, frame):
+    #     # Calculate FPS
+    #     self.calculate_fps()
+        
+    #     # Convert BGR to RGB
+    #     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+    #     # Process the frame
+    #     results = self.hands.process(rgb_frame)
+        
+    #     # Create output frame
+    #     output_frame = frame.copy()
+        
+    #     # Check for multiple hands
+    #     self.multiple_hands_detected = results.multi_hand_landmarks and len(results.multi_hand_landmarks) > 1
+        
+    #     if results.multi_hand_landmarks:
+    #         # Only process the first hand
+    #         hand_landmarks = results.multi_hand_landmarks[0]
+            
+    #         # Draw hand landmarks
+    #         self.mp_draw.draw_landmarks(
+    #             output_frame,
+    #             hand_landmarks,
+    #             self.mp_hands.HAND_CONNECTIONS,
+    #             self.mp_draw.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=2),
+    #             self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
+    #         )
+            
+    #         gesture = self.detect_gestures(hand_landmarks)
+
+    #         # Update gesture statistics if cooldown passed
+    #         if gesture and (time.time() - self.last_gesture_time > self.gesture_cooldown):
+    #             self.gesture_stats[gesture] += 1
+    #             self.last_gesture_time = time.time()
+    #             self.current_gesture = gesture
+
+    #             # 🟢 Start production with peace sign
+    #             if gesture == "peace" and not self.production_started:
+    #                 self.production_started = True
+    #                 print("✅ Production started (flag turned ON)")
+
+    #             # 🛑 Stop/reset production with palm
+    #             elif gesture == "palm" and self.production_started:
+    #                 self.production_started = False
+    #                 print("🛑 Production stopped (flag turned OFF)")
+
+    #         # Always apply effect for feedback
+    #         output_frame = self.apply_gesture_effect(output_frame, self.current_gesture)
+
+            
+        #     # Detect gestures
+        #     gesture = self.detect_gestures(hand_landmarks)
+            
+        #     # Update gesture statistics and effects
+        #     if gesture:
+        #         # Update current gesture and stats if changed
+        #         if gesture != self.current_gesture:
+        #             self.current_gesture = gesture
+        #             if time.time() - self.last_gesture_time > self.gesture_cooldown:
+        #                 self.gesture_stats[gesture] += 1
+        #                 self.last_gesture_time = time.time()
+                
+        #         # Always apply the current gesture's effect
+        #         output_frame = self.apply_gesture_effect(output_frame, gesture)
+        #     else:
+        #         self.current_gesture = None
+        # else:
+        #     self.current_gesture = None
+            
+        # # Draw statistics
+        # output_frame = self.draw_stats(output_frame)
+            
+        # return output_frame
 
 def main():
     # Initialize the camera

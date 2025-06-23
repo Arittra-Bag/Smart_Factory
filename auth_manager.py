@@ -68,54 +68,54 @@ class AuthManager:
 
     def authenticate(self):
         """Handle the authentication process"""
-        st.title("Smart Factory Control - Authentication")
+        # st.title("Smart Factory Control - Authentication")
         
-        if not st.session_state.is_authenticated:
-            # First-time setup
-            if not os.path.exists("google_auth_qr.png"):
-                st.write("First-time setup: Please scan this QR code with Google Authenticator")
-                qr_img = self.generate_qr_code()
-                st.image("google_auth_qr.png", caption="Scan with Google Authenticator")
+        # if not st.session_state.is_authenticated:
+        #     # First-time setup
+        #     if not os.path.exists("google_auth_qr.png"):
+        #         st.write("First-time setup: Please scan this QR code with Google Authenticator")
+        #         qr_img = self.generate_qr_code()
+        #         st.image("google_auth_qr.png", caption="Scan with Google Authenticator")
             
-            # OTP input
-            otp = st.text_input("Enter OTP from Google Authenticator", type="password")
+        #     # OTP input
+        #     otp = st.text_input("Enter OTP from Google Authenticator", type="password")
             
-            if st.button("Authenticate"):
-                if self.verify_otp(otp):
-                    st.session_state.is_authenticated = True
-                    self.update_activity()
-                    st.success("Authentication successful!")
-                    st.rerun()
-                else:
-                    st.error("Invalid OTP. Please try again.")
+        #     if st.button("Authenticate"):
+        #         if self.verify_otp(otp):
+        #             st.session_state.is_authenticated = True
+        #             self.update_activity()
+        #             st.success("Authentication successful!")
+        #             st.rerun()
+        #         else:
+        #             st.error("Invalid OTP. Please try again.")
             
-            st.info("Note: You will be automatically logged out after 2 minutes of inactivity.")
-        else:
-            # Create a container for the timer in the sidebar
-            with st.sidebar:
-                st.markdown("### Session Timer")
-                remaining_time = self.get_remaining_time()
-                time_str = self.format_remaining_time(remaining_time)
+        #     st.info("Note: You will be automatically logged out after 2 minutes of inactivity.")
+        # else:
+        #     # Create a container for the timer in the sidebar
+        #     with st.sidebar:
+        #         st.markdown("### Session Timer")
+        #         remaining_time = self.get_remaining_time()
+        #         time_str = self.format_remaining_time(remaining_time)
                 
-                # Display timer with color based on remaining time
-                if remaining_time > 30:
-                    st.info(f"⏱️ Auto-logout in: {time_str}")
-                elif remaining_time > 10:
-                    st.warning(f"⏱️ Auto-logout in: {time_str}")
-                else:
-                    st.error(f"⏱️ Auto-logout in: {time_str}")
+        #         # Display timer with color based on remaining time
+        #         if remaining_time > 30:
+        #             st.info(f"⏱️ Auto-logout in: {time_str}")
+        #         elif remaining_time > 10:
+        #             st.warning(f"⏱️ Auto-logout in: {time_str}")
+        #         else:
+        #             st.error(f"⏱️ Auto-logout in: {time_str}")
             
-            # Show logout button
-            if st.sidebar.button("Logout"):
-                st.session_state.is_authenticated = False
-                st.rerun()
+        #     # Show logout button
+        #     if st.sidebar.button("Logout"):
+        #         st.session_state.is_authenticated = False
+        #         st.rerun()
             
-            # Check for inactivity
-            if self.check_inactivity():
-                st.warning("Session expired due to inactivity. Please log in again.")
-                st.rerun()
+        #     # Check for inactivity
+        #     if self.check_inactivity():
+        #         st.warning("Session expired due to inactivity. Please log in again.")
+        #         st.rerun()
             
-            self.update_activity()
-            return True
+        #     self.update_activity()
+        #     return True
         
-        return False 
+        return True 

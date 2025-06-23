@@ -1,0 +1,5 @@
+timestamp,event,total_production,production_count,defect_count,defect_rate,quality_score,batch_size,machine_status
+2025-06-23 16:52:47,EMERGENCY_RESET,0,0,0,0.0,100.0,0,EMERGENCY
+2025-06-23 16:53:08,EMERGENCY_RESET,6,6,0,0.0,100.0,0,EMERGENCY
+2025-06-23 16:59:48,EMERGENCY_RESET,6,6,0,0.0,100.0,6,EMERGENCY
+2025-06-23 17:03:00,EMERGENCY_RESET,32,32,0,0.0,100.0,32,EMERGENCY
