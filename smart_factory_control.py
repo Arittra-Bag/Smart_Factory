@@ -4,39 +4,18 @@ import numpy as np
 import time
 from collections import defaultdict
 import datetime
-import json
-import torch
-from torchvision import transforms
-from PIL import Image
-import warnings
-warnings.filterwarnings('ignore')
-import matplotlib.pyplot as plt
-import pandas as pd
 import os
 import streamlit as st
-from auth_manager import AuthManager
-# import mysql.connector
 import threading
 import csv
 from tensorflow.keras.models import load_model
-import numpy as np
 import random
 import glob
-from io import StringIO
 import matplotlib.pyplot as plt
 import matplotlib
-
-
-# db = mysql.connector.connect(
-#     host="localhost",
-#     user="root",
-#     password="demo123",
-#     database="smart_factory",
-#     auth_plugin='mysql_native_password',
-#     use_pure=True
-# )
-
-# cursor = db.cursor()
+from auth_manager import AuthManager
+import io
+import traceback
 
 # Initialize session state for camera and production data
 if 'camera' not in st.session_state:
@@ -51,17 +30,19 @@ if 'production_data' not in st.session_state:
         'emergency_mode': False
     }
 
-# Initialize authentication manager
 auth_manager = AuthManager()
+
+# Load the defect detection model only once at the module level
+try:
+    DEFECT_MODEL = load_model("defect_detector_model.h5")
+except Exception as e:
+    DEFECT_MODEL = None
+    print(f"❌ Error loading model at module level: {e}")
 
 class SmartFactoryController:
     def __init__(self):
-
         self.production_mode = False
-        self.defect_model = load_model("defect_detector_model.h5")
-
-
-        # Initialize MediaPipe
+        self.defect_model = DEFECT_MODEL
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
@@ -70,8 +51,6 @@ class SmartFactoryController:
             min_tracking_confidence=0.5
         )
         self.mp_draw = mp.solutions.drawing_utils
-
-        # Initialize gesture tracking
         self.gesture_stats = defaultdict(int)
         self.last_gesture_time = time.time()
         self.gesture_cooldown = 1.0
@@ -81,79 +60,50 @@ class SmartFactoryController:
         self.completed_batches = 0
         self.start_time = time.time()
         self.current_batch_count = 0
-
-
-        # Load production data from session state
         self.production_count = st.session_state.production_data.get('production_count', 0)
         self.defect_count = st.session_state.production_data.get('defect_count', 0)
         self.batch_size = st.session_state.production_data.get('batch_size', 0)
         self.quality_score = st.session_state.production_data.get('quality_score', 0)
         self.machine_status = st.session_state.production_data.get('machine_status', "STANDBY")
         self.emergency_mode = st.session_state.production_data.get('emergency_mode', False)
-
-        # 🆕 Maintain total production throughout the day (do not reset per batch)
         self.total_production = st.session_state.production_data.get('total_production', self.production_count)
-
         self.last_inspection_time = time.time()
         self.emergency_reset_start = 0
-        self.emergency_reset_duration = 3.0  # 3 seconds for emergency reset
-
-        # Load quality inspection model (simulated)
-        self.quality_model = self.load_quality_model()
-
-        # Safety check tracking
+        self.emergency_reset_duration = 3.0
         self.last_batch_size = 0
         self.safety_check_done = False
         self.safety_check_records = "safety_check_records.csv"
-
-        # Emergency reset tracking
         self.emergency_reset_progress = 0
         self.emergency_reset_active = False
-
-        # Test mode for defect detection validation
         self.test_mode = False
         self.test_images = []
         self.current_test_image_index = 0
-        self.test_image_labels = []  # Store expected labels for accuracy checking
-        self.test_results = []  # Store test results for accuracy analysis
-
-        # Production simulation mode
+        self.test_image_labels = []
+        self.test_results = []
         self.simulation_mode = False
         self.simulation_images = []
         self.simulation_labels = []
         self.current_simulation_index = 0
-        self.simulation_interval = 3.0  # Change image every 3 seconds
+        self.simulation_interval = 3.0
         self.last_simulation_change = time.time()
         self.simulation_production_count = 0
-
-        # Production images from dataset
         self.production_images = []
         self.production_labels = []
         self.current_production_index = 0
-        self.production_interval = 3.0  # Change image every 3 seconds
+        self.production_interval = 3.0
         self.last_production_change = time.time()
-
-        # Quality check tracking - prevent multiple defect counts for same item
-        self.quality_checked_items = set()  # Track which production items have been quality checked
-        self.current_item_id = 0  # Unique ID for current production item
-
-        # Pre-load production images for immediate display
+        self.quality_checked_items = set()
+        self.current_item_id = 0
         self.load_production_images()
-
-        # Set a fixed batch size per day
-        # self.fixed_batch_size = 10  # You can prompt user input for this if needed
-
-        # Auto-increment timing for production
-        # self.last_production_time = time.time()
-        # self.production_interval = 2  # seconds
-
-        # Initialize alert system
         self.alerts = []
         self.alert_thread = threading.Thread(target=self.alert_monitor, daemon=True)
         self.alert_thread.start()
+        self.quality_model = None
 
     def predict_defect(self, image):
-        """Use the trained model to predict defects in the image"""
+        if image is None or image.size == 0:
+            print("❌ Empty image passed to predict_defect")
+            return {'defect_rate': 0.0, 'is_defective': False, 'prediction': 0.0}
         try:
             # Resize to match model input (128x128 as per training)
             img = cv2.resize(image, (128, 128))
@@ -213,12 +163,10 @@ class SmartFactoryController:
                 'prediction': 0.0
             }
 
-
     def update_session_state(self):
         """Update session state with current production data"""
         st.session_state.production_data.update({
             'production_count': self.production_count,
-            # 'completed_batches': self.completed_batches,
             'total_production': self.total_production,
             'defect_count': self.defect_count,
             'batch_size': self.batch_size,
@@ -226,32 +174,6 @@ class SmartFactoryController:
             'machine_status': self.machine_status,
             'emergency_mode': self.emergency_mode
         })
-
-    # def save_daily_log(self):
-    #     sql = """
-    #         INSERT INTO production_logs (
-    #             machine_status, production_count, quality_score,
-    #             defect_count, batch_size, emergency_stop
-    #         ) VALUES (%s, %s, %s, %s, %s, %s)
-    #     """
-
-    #     data = (
-    #         self.machine_status,
-    #         self.production_count,
-    #         self.quality_score,
-    #         self.defect_count,
-    #         self.batch_size,
-    #         self.emergency_mode
-    #     )
-
-    #     try:
-    #         cursor.execute(sql, data)
-    #         db.commit()
-    #         st.success("Daily production log saved successfully.")
-    #     except Exception as e:
-    #         st.error(f"Database insert error: {e}")
-
-
 
     def reset_production(self):
         """Reset all production data"""
@@ -270,10 +192,11 @@ class SmartFactoryController:
         # In real implementation, load actual model
         class MockModel:
             def __call__(self, x):
-                return torch.tensor([np.random.normal(0.95, 0.05)])
+                return [random.uniform(0.85, 0.98)]  # Return random quality score
             def eval(self):
                 pass
-        return MockModel()
+        self.quality_model = MockModel()
+        return self.quality_model
 
     def alert_monitor(self):
         """Background thread for monitoring system alerts"""
@@ -337,8 +260,6 @@ class SmartFactoryController:
 
         return None
 
-
-
     def apply_industrial_effect(self, frame, gesture):
         """Apply visual effects based on industrial context"""
         if gesture == "emergency_stop":
@@ -395,19 +316,11 @@ class SmartFactoryController:
                         self.safety_check_done = True
 
                         # Simulate quality inspection
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        frame_pil = Image.fromarray(frame_rgb)
-                        transform = transforms.Compose([
-                            transforms.Resize((224, 224)),
-                            transforms.ToTensor(),
-                        ])
-                        frame_tensor = transform(frame_pil).unsqueeze(0)
-                        
-                        with torch.no_grad():
-                            quality_score = float(self.quality_model(frame_tensor).item())
+                        # Temporarily disabled to prevent import errors
+                        quality_score = random.uniform(0.85, 0.98)  # Random quality score
                         self.quality_score = min(quality_score * 100, 100)  # Ensure max 100%
 
-                        if quality_score < 90:  # Adjust threshold for defect detection
+                        if quality_score < 0.90:  # Adjust threshold for defect detection
                             self.defect_count += 1
 
                         # Note: Actual defect detection is now handled in process_frame method
@@ -417,159 +330,10 @@ class SmartFactoryController:
 
         return frame
 
-    # def draw_industrial_hud(self, frame):
-    #     """Draw industrial HUD with production metrics"""
-    #     # Store original frame size before modifications
-    #     original_height, original_width = frame.shape[:2]
-        
-    #     # Create a black panel on the right side - but don't change frame size
-    #     panel_width = 250
-        
-    #     # Only add panel if there's enough space, otherwise overlay on existing frame
-    #     if original_width >= panel_width + 400:  # Ensure minimum space for main content
-    #         # Create a black panel on the right side
-    #         original_frame = frame.copy()
-    #         frame = cv2.copyMakeBorder(
-    #             original_frame,
-    #             0, 0, 0, panel_width,
-    #             cv2.BORDER_CONSTANT,
-    #             value=(0, 0, 0)
-    #         )
-    #         x_pos = int(frame.shape[1] - panel_width + 10)
-    #     else:
-    #         # Overlay panel on existing frame without changing size
-    #         x_pos = int(original_width - panel_width + 10)
-    #         # Draw black background for panel area
-    #         cv2.rectangle(frame, (x_pos - 10, 0), (original_width, original_height), (0, 0, 0), -1)
-        
-    #     y_pos = 40
-    #     line_spacing = 35
-        
-    #     # Draw title
-    #     cv2.putText(frame, "SMART FACTORY", (int(x_pos), int(y_pos)), 
-    #                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    #     y_pos += 30
-    #     cv2.putText(frame, "CONTROL SYSTEM", (int(x_pos), int(y_pos)), 
-    #                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    #     y_pos += int(line_spacing * 1.2)
-
-    #     # System Status with color
-    #     status_text = f"Status: {self.machine_status}"
-    #     status_color = (0, 255, 0) if self.machine_status == "RUNNING" else \
-    #                   (0, 0, 255) if self.machine_status == "EMERGENCY" else \
-    #                   (255, 255, 0)
-    #     cv2.putText(frame, status_text, (int(x_pos), int(y_pos)),
-    #                cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
-        
-    #     # Show emergency reset progress if active
-    #     if self.emergency_mode and self.emergency_reset_start > 0:
-    #         progress = min((time.time() - self.emergency_reset_start) / self.emergency_reset_duration * 100, 100)
-    #         y_pos += 20
-    #         cv2.putText(frame, f"Reset Progress: {progress:.0f}%", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    #         y_pos += 15
-    #         cv2.putText(frame, "Hold PALM for 3s to reset", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
-    #     elif self.emergency_mode:
-    #         y_pos += 20
-    #         cv2.putText(frame, "Show PALM for 3s to reset", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-        
-    #     y_pos += line_spacing
-
-    #     # Draw divider
-    #     cv2.line(frame, (int(x_pos - 5), int(y_pos)), 
-    #             (int(frame.shape[1] - 10), int(y_pos)), (200, 200, 200), 1)
-    #     y_pos += line_spacing
-
-    #     # Production Metrics
-    #     cv2.putText(frame, f"Production: {self.production_count}", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    #     y_pos += line_spacing
-
-    #     cv2.putText(frame, f"Quality: {self.quality_score:.1f}%", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    #     y_pos += line_spacing
-
-    #     cv2.putText(frame, f"Defects: {self.defect_count}", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    #     y_pos += line_spacing
-
-    #     # Draw divider
-    #     cv2.line(frame, (int(x_pos - 5), int(y_pos)),
-    #             (int(frame.shape[1] - 10), int(y_pos)), (200, 200, 200), 1)
-    #     y_pos += line_spacing
-
-    #     # Gesture Controls Guide
-    #     cv2.putText(frame, "GESTURE CONTROLS:", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-    #     y_pos += line_spacing
-    #     cv2.putText(frame, "Fist - Emergency Stop", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    #     y_pos += line_spacing
-    #     cv2.putText(frame, "Peace - Start Production", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-    #     y_pos += line_spacing
-    #     cv2.putText(frame, "Palm - Quality Check", 
-    #                (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-    #     y_pos += line_spacing * 1.2
-
-    #     # Current Hand Status
-    #     if self.current_gesture:
-    #         status_text = "Current Hand: "
-    #         if self.current_gesture == "emergency_stop":
-    #             status_text += "FIST"
-    #             status_color = (0, 0, 255)
-    #         elif self.current_gesture == "start_production":
-    #             status_text += "PEACE"
-    #             status_color = (0, 255, 0)
-    #         elif self.current_gesture == "quality_check":
-    #             status_text += "PALM"
-    #             status_color = (255, 255, 0)
-    #         cv2.putText(frame, status_text, (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
-    #     else:
-    #         if self.production_mode:
-    #             cv2.putText(frame, "Current Hand: NONE (Production Running)", (int(x_pos), int(y_pos)),
-    #                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-    #         else:
-    #             cv2.putText(frame, "Current Hand: NONE", (int(x_pos), int(y_pos)),
-    #                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
-
-    #     # Add production mode indicator
-    #     y_pos += line_spacing
-    #     if self.production_mode:
-    #         cv2.putText(frame, "MODE: CONTINUOUS PRODUCTION", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-    #     elif self.emergency_mode:
-    #         cv2.putText(frame, "MODE: EMERGENCY STOP", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    #     elif self.simulation_mode:
-    #         cv2.putText(frame, "MODE: PRODUCTION SIMULATION", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    #         y_pos += 15
-    #         cv2.putText(frame, f"Item {self.simulation_production_count + 1}/{len(self.simulation_images)}", 
-    #                    (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-    #     elif self.test_mode:
-    #         cv2.putText(frame, "MODE: TEST MODE", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    #         y_pos += 15
-    #         cv2.putText(frame, f"Image {self.current_test_image_index + 1}/{len(self.test_images)}", 
-    #                    (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-    #         if self.test_results:
-    #             y_pos += 15
-    #             accuracy = self.get_test_accuracy()
-    #             cv2.putText(frame, f"Accuracy: {accuracy:.1f}%", 
-    #                        (int(x_pos), int(y_pos)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
-    #     else:
-    #         cv2.putText(frame, "MODE: STANDBY", (int(x_pos), int(y_pos)),
-    #                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-
-    #     return frame
-
     def plot_defect_rate(self, date_str=None):
         """Plot batch size vs. defect rate for a specific date from the CSV file, with trend analysis and statistics box."""
         try:
+            print(f"🔍 Starting plot_defect_rate with date_str: {date_str}")
             matplotlib.use('Agg')
 
             if not os.path.exists(self.safety_check_records):
@@ -579,8 +343,12 @@ class SmartFactoryController:
             with open(self.safety_check_records, "r") as f:
                 lines = f.readlines()
 
+            print(f"📄 Read {len(lines)} lines from CSV file")
+
             if date_str is None:
                 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+            print(f"🔍 Looking for date: {date_str}")
 
             # Find the section for the given date
             section_start = None
@@ -588,12 +356,14 @@ class SmartFactoryController:
             for i, line in enumerate(lines):
                 if line.strip() == f"---- {date_str} ----":
                     section_start = i
+                    print(f"✅ Found section start at line {i}")
                     for j in range(i + 1, len(lines)):
                         if lines[j].startswith("----"):
                             section_end = j
                             break
                     if section_end is None:
                         section_end = len(lines)
+                        print(f"✅ Section ends at end of file (line {len(lines)})")
                     break
 
             if section_start is None:
@@ -601,30 +371,50 @@ class SmartFactoryController:
                 return None
 
             section_lines = lines[section_start+1:section_end]
+            print(f"📊 Section lines: {section_lines}")
+            
             batch_sizes, defect_rates, timestamps = [], [], []
             for line in section_lines:
                 line = line.strip()
+                print(f"🔍 Processing line: '{line}'")
                 if line == "" or line.startswith("Batch Size"):
+                    print(f"  ⏭️ Skipping line: '{line}'")
                     continue
                 parts = line.split(',')
+                print(f"  📝 Parts: {parts}")
                 if len(parts) >= 3:
                     try:
                         batch_size = int(float(parts[0]))
                         defect_rate = float(parts[1])
                         batch_sizes.append(batch_size)
                         defect_rates.append(defect_rate)
+                        print(f"  ✅ Added: batch_size={batch_size}, defect_rate={defect_rate}")
                     except Exception as e:
                         print(f"⚠️ Skipping malformed line: {line} - Error: {e}")
                         continue
+
+            print(f"📊 Final data: batch_sizes={batch_sizes}, defect_rates={defect_rates}")
 
             if not batch_sizes:
                 print(f"❌ No valid data available for {date_str}")
                 return None
 
             # Plotting
+            print("🎨 Creating plot...")
             fig, ax = plt.subplots(figsize=(12, 8))
             sorted_data = sorted(zip(batch_sizes, defect_rates))
+            
+            print(f"📊 Sorted data: {sorted_data}")
+            
+            # Check if we have data to plot
+            if not sorted_data:
+                print(f"❌ No valid data to plot for {date_str}")
+                return None
+                
+            print("🔍 About to unpack sorted_data...")
             sorted_batch_sizes, sorted_defect_rates = zip(*sorted_data)
+            print(f"✅ Unpacked data: batch_sizes={sorted_batch_sizes}, defect_rates={sorted_defect_rates}")
+            
             ax.plot(sorted_batch_sizes, sorted_defect_rates, marker='o', linewidth=2, markersize=8,
                     color='#2ecc71', markeredgecolor='white', markeredgewidth=2, label='Defect Rate', alpha=0.7)
 
@@ -670,6 +460,7 @@ class SmartFactoryController:
             ax.tick_params(axis='both', labelsize=10)
             ax.legend(fontsize=10)
             plt.tight_layout()
+            print("✅ Plot created successfully!")
             return fig
 
         except Exception as e:
@@ -681,31 +472,21 @@ class SmartFactoryController:
     def generate_report(self):
         """Generate a CSV report of the safety checks"""
         if os.path.exists(self.safety_check_records):
-            data = pd.read_csv(self.safety_check_records)
-            if not data.empty:
-                # Add summary statistics
-                summary = pd.DataFrame({
-                    'Metric': ['Total Batches', 'Average Defect Rate', 'Max Defect Rate', 'Min Defect Rate'],
-                    'Value': [
-                        len(data),
-                        f"{data['Defect Rate'].mean():.2f}%",
-                        f"{data['Defect Rate'].max():.2f}%",
-                        f"{data['Defect Rate'].min():.2f}%"
-                    ]
-                })
-                
+            # Read the CSV file manually instead of using pandas
+            with open(self.safety_check_records, "r") as f:
+                lines = f.readlines()
+            
+            if lines:
                 # Create report filename with timestamp
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 report_filename = f"defect_analysis_report_{timestamp}.csv"
                 
-                # Save summary and data
+                # Save the data as a simple report
                 with open(report_filename, 'w') as f:
                     f.write("DEFECT ANALYSIS REPORT\n")
                     f.write(f"Generated on: {datetime.datetime.now()}\n\n")
-                    f.write("SUMMARY STATISTICS\n")
-                    summary.to_csv(f, index=False)
-                    f.write("\nDETAILED DATA\n")
-                    data.to_csv(f, index=False)
+                    f.write("DETAILED DATA\n")
+                    f.writelines(lines)
                 
                 return report_filename
         return None
@@ -723,8 +504,11 @@ class SmartFactoryController:
             lines = []
 
         # Clean up any empty lines at the end
+        print(f"🔍 Cleaning up empty lines. Lines count: {len(lines)}")
         while lines and lines[-1].strip() == "":
+            print(f"  🗑️ Popping empty line: '{lines[-1].strip()}'")
             lines.pop()
+            print(f"  📊 Lines count after pop: {len(lines)}")
 
         # Check if today's section already exists
         today_section_exists = False
@@ -1909,30 +1693,40 @@ def main():
                     else:
                         selected_date = None
                     if st.button("Generate Graph"):
-                        try:
-                            fig = controller.plot_defect_rate(selected_date)
-                            if fig is not None:
-                                st.pyplot(fig)
-                            else:
-                                st.error("❌ Failed to generate graph. Check console for details.")
-                        except Exception as e:
-                            st.error(f"❌ Error generating graph: {str(e)}")
-                            print(f"❌ Streamlit error: {e}")
+                        if selected_date is None:
+                            st.warning("Please select a date first.")
+                        else:
+                            try:
+                                fig = controller.plot_defect_rate(selected_date)
+                                if fig is not None:
+                                    st.pyplot(fig)
+                                else:
+                                    st.error("❌ Failed to generate graph. Check console for details.")
+                            except Exception as e:
+                                st.error(f"❌ Error generating graph: {str(e)}")
+                                print(f"❌ Streamlit error: {e}")
                 
                 with analysis_col2:
                     if st.button("Export Report"):
-                        report_file = controller.generate_report()
-                        if report_file:
-                            with open(report_file, 'r') as f:
-                                st.download_button(
-                                    label="Download Report",
-                                    data=f.read(),
-                                    file_name=report_file,
-                                    mime="text/csv"
-                                )
-                            st.success(f"Report generated: {report_file}")
+                        if selected_date is None:
+                            st.warning("Please select a date first.")
                         else:
-                            st.warning("No data available for report generation")
+                            # Generate the figure
+                            fig = controller.plot_defect_rate(selected_date)
+                            if fig:
+                                # Save figure to a BytesIO buffer
+                                buf = io.BytesIO()
+                                fig.savefig(buf, format="png", bbox_inches="tight")
+                                buf.seek(0)
+                                st.download_button(
+                                    label="Download Graph as PNG",
+                                    data=buf,
+                                    file_name=f"defect_trend_{selected_date}.png",
+                                    mime="image/png"
+                                )
+                                st.success("Graph image ready for download!")
+                            else:
+                                st.warning("No graph available to export.")
                 
                 # Add model testing section
                 st.header("Model Testing")
@@ -2037,6 +1831,9 @@ def main():
             time.sleep(0.1)
             
     except Exception as e:
+        with open("streamlit_error.log", "a") as f:
+            f.write(f"Exception: {e}\n")
+            traceback.print_exc(file=f)
         st.error(f"An error occurred: {str(e)}")
         
     finally:

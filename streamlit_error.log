@@ -1,0 +1,80 @@
+Exception: pop from empty list
+Traceback (most recent call last):
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\layers\layer.py", line 232, in build_wrapper
+    original_build_method(*args, **kwargs)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 195, in build
+    x = layer(x)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\utils\traceback_utils.py", line 122, in error_handler
+    raise e.with_traceback(filtered_tb) from None
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\backend\common\name_scope.py", line 61, in __exit__
+    name_scope_stack.pop()
+IndexError: pop from empty list
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\a1future\Desktop\Smart_Factory\smart_factory_control.py", line 1649, in main
+    controller = SmartFactoryController()
+  File "C:\Users\a1future\Desktop\Smart_Factory\smart_factory_control.py", line 38, in __init__
+    self.defect_model = load_model("defect_detector_model.h5")
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\saving\saving_api.py", line 196, in load_model
+    return legacy_h5_format.load_model_from_hdf5(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\legacy\saving\legacy_h5_format.py", line 133, in load_model_from_hdf5
+    model = saving_utils.model_from_config(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\legacy\saving\saving_utils.py", line 88, in model_from_config
+    return serialization.deserialize_keras_object(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\legacy\saving\serialization.py", line 495, in deserialize_keras_object
+    deserialized_obj = cls.from_config(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 375, in from_config
+    model.add(layer)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 122, in add
+    self._maybe_rebuild()
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 149, in _maybe_rebuild
+    self.build(input_shape)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\layers\layer.py", line 230, in build_wrapper
+    with obj._open_name_scope():
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\backend\tensorflow\core.py", line 692, in __exit__
+    super().__exit__(*args, **kwargs)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\backend\common\name_scope.py", line 61, in __exit__
+    name_scope_stack.pop()
+IndexError: pop from empty list
+Exception: pop from empty list
+Traceback (most recent call last):
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\layers\layer.py", line 232, in build_wrapper
+    original_build_method(*args, **kwargs)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 195, in build
+    x = layer(x)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\utils\traceback_utils.py", line 122, in error_handler
+    raise e.with_traceback(filtered_tb) from None
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\backend\common\name_scope.py", line 61, in __exit__
+    name_scope_stack.pop()
+IndexError: pop from empty list
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\a1future\Desktop\Smart_Factory\smart_factory_control.py", line 1651, in main
+    controller = SmartFactoryController()
+  File "C:\Users\a1future\Desktop\Smart_Factory\smart_factory_control.py", line 38, in __init__
+    self.defect_model = load_model("defect_detector_model.h5")
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\saving\saving_api.py", line 196, in load_model
+    return legacy_h5_format.load_model_from_hdf5(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\legacy\saving\legacy_h5_format.py", line 133, in load_model_from_hdf5
+    model = saving_utils.model_from_config(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\legacy\saving\saving_utils.py", line 88, in model_from_config
+    return serialization.deserialize_keras_object(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\legacy\saving\serialization.py", line 495, in deserialize_keras_object
+    deserialized_obj = cls.from_config(
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 375, in from_config
+    model.add(layer)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 122, in add
+    self._maybe_rebuild()
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\models\sequential.py", line 149, in _maybe_rebuild
+    self.build(input_shape)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\layers\layer.py", line 230, in build_wrapper
+    with obj._open_name_scope():
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\backend\tensorflow\core.py", line 692, in __exit__
+    super().__exit__(*args, **kwargs)
+  File "C:\Users\a1future\miniconda3\envs\smart_factory\lib\site-packages\keras\src\backend\common\name_scope.py", line 61, in __exit__
+    name_scope_stack.pop()
+IndexError: pop from empty list

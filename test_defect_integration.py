@@ -32,11 +32,15 @@ def test_defect_model():
         test_cases = [
             ("Random noise", np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)),
             ("Solid color", np.full((480, 640, 3), 128, dtype=np.uint8)),
-            ("Gradient", np.tile(np.linspace(0, 255, 640).astype(np.uint8), (480, 1, 3)))
+            ("Gradient", np.tile(np.linspace(0, 255, 640, dtype=np.uint8), (480, 1)).reshape(480, 640, 1).repeat(3, axis=2))
         ]
         
         print("\n🧪 Testing defect detection...")
         for name, test_image in test_cases:
+            # Defensive check for empty or invalid images
+            if test_image is None or test_image.size == 0:
+                print(f"❌ Skipping {name}: empty or invalid image")
+                continue
             # Resize to match model input
             img = cv2.resize(test_image, (128, 128))
             img = img.astype("float32") / 255.0
