@@ -418,6 +418,18 @@ class SmartFactoryController:
             ax.plot(sorted_batch_sizes, sorted_defect_rates, marker='o', linewidth=2, markersize=8,
                     color='#2ecc71', markeredgecolor='white', markeredgewidth=2, label='Defect Rate', alpha=0.7)
 
+            # Forecast points
+            forecast = self.forecast_defect_rate(list(sorted_batch_sizes), list(sorted_defect_rates))
+            next_batch = sorted_batch_sizes[-1] + (sorted_batch_sizes[-1] - sorted_batch_sizes[-2] if len(sorted_batch_sizes) > 1 else 1)
+            # Plot linear forecast
+            if forecast['linear'] is not None:
+                ax.scatter([next_batch], [forecast['linear']], color='orange', marker='*', s=200, label='Linear Forecast')
+                ax.annotate(f"{forecast['linear']:.2f}%", (next_batch, forecast['linear']), textcoords="offset points", xytext=(0,10), ha='center', color='orange', fontsize=10, fontweight='bold')
+            # Plot rolling average forecast
+            if forecast['rolling_avg'] is not None:
+                ax.scatter([next_batch], [forecast['rolling_avg']], color='blue', marker='D', s=100, label='Rolling Avg Forecast')
+                ax.annotate(f"{forecast['rolling_avg']:.2f}%", (next_batch, forecast['rolling_avg']), textcoords="offset points", xytext=(0,-15), ha='center', color='blue', fontsize=10, fontweight='bold')
+
             # Trend line and R²
             if len(sorted_batch_sizes) > 1:
                 x = np.array(sorted_batch_sizes)
@@ -1635,6 +1647,29 @@ class SmartFactoryController:
             print(f"❌ Matplotlib test failed: {e}")
             return None
 
+    def forecast_defect_rate(self, batch_sizes, defect_rates, window=3):
+        """Forecast the next defect rate using linear regression and rolling average."""
+        forecast = {}
+        import numpy as np
+        # Linear regression forecast
+        if len(batch_sizes) > 1:
+            x = np.array(batch_sizes)
+            y = np.array(defect_rates)
+            z = np.polyfit(x, y, 1)
+            p = np.poly1d(z)
+            next_batch = x[-1] + (x[-1] - x[-2] if len(x) > 1 else 1)
+            forecast['linear'] = float(p(next_batch))
+        else:
+            forecast['linear'] = None
+        # Rolling average forecast
+        if len(defect_rates) >= window:
+            forecast['rolling_avg'] = float(np.mean(defect_rates[-window:]))
+        elif defect_rates:
+            forecast['rolling_avg'] = float(np.mean(defect_rates))
+        else:
+            forecast['rolling_avg'] = None
+        return forecast
+
 def main():
     st.set_page_config(
         page_title="Smart Factory Control",
@@ -1700,6 +1735,39 @@ def main():
                                 fig = controller.plot_defect_rate(selected_date)
                                 if fig is not None:
                                     st.pyplot(fig)
+                                    # Forecast display
+                                    # Extract data for the selected date
+                                    with open(controller.safety_check_records, "r") as f:
+                                        lines = f.readlines()
+                                    section_start = None
+                                    section_end = None
+                                    for i, line in enumerate(lines):
+                                        if line.strip() == f"---- {selected_date} ----":
+                                            section_start = i
+                                            for j in range(i + 1, len(lines)):
+                                                if lines[j].startswith("----"):
+                                                    section_end = j
+                                                    break
+                                            if section_end is None:
+                                                section_end = len(lines)
+                                            break
+                                    section_lines = lines[section_start+1:section_end] if section_start is not None else []
+                                    batch_sizes, defect_rates = [], []
+                                    for line in section_lines:
+                                        line = line.strip()
+                                        if line == "" or line.startswith("Batch Size"):
+                                            continue
+                                        parts = line.split(',')
+                                        if len(parts) >= 3:
+                                            try:
+                                                batch_size = int(float(parts[0]))
+                                                defect_rate = float(parts[1])
+                                                batch_sizes.append(batch_size)
+                                                defect_rates.append(defect_rate)
+                                            except Exception:
+                                                continue
+                                    forecast = controller.forecast_defect_rate(batch_sizes, defect_rates)
+                                    st.info(f"**Forecasted Next Defect Rate:**\n- Linear: {forecast['linear']:.2f}%\n- Rolling Avg: {forecast['rolling_avg']:.2f}%")
                                 else:
                                     st.error("❌ Failed to generate graph. Check console for details.")
                             except Exception as e:
