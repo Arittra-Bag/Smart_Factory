@@ -22,6 +22,9 @@ from tensorflow.keras.models import load_model
 import numpy as np
 import random
 import glob
+from io import StringIO
+import matplotlib.pyplot as plt
+import matplotlib
 
 
 # db = mysql.connector.connect(
@@ -130,6 +133,10 @@ class SmartFactoryController:
         self.production_interval = 3.0  # Change image every 3 seconds
         self.last_production_change = time.time()
 
+        # Quality check tracking - prevent multiple defect counts for same item
+        self.quality_checked_items = set()  # Track which production items have been quality checked
+        self.current_item_id = 0  # Unique ID for current production item
+
         # Pre-load production images for immediate display
         self.load_production_images()
 
@@ -139,42 +146,6 @@ class SmartFactoryController:
         # Auto-increment timing for production
         # self.last_production_time = time.time()
         # self.production_interval = 2  # seconds
-
-
-        
-        # Ensure CSV file exists
-        # if not os.path.exists(self.safety_check_records):
-        #     with open(self.safety_check_records, 'w') as f:
-        #         f.write("Batch Size,Defect Rate,Timestamp\n")
-
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
-        timestamp = datetime.datetime.now()
-        
-        # Check the last written date from the file
-        last_logged_date = None
-        if os.path.exists(self.safety_check_records):
-            with open(self.safety_check_records, "r") as f:
-                for line in reversed(f.readlines()):
-                    if line.startswith("----"):
-                        last_logged_date = line.strip().replace("---- ", "")
-                        break
-
-        # Now write the new batch log
-        with open(self.safety_check_records, mode="a", newline="") as file:
-            writer = csv.writer(file)
-
-            # Write a new date header if needed
-            if last_logged_date != today:
-                file.write(f"\n---- {today} ----\n")
-                writer.writerow(["Batch Size", "Defect Rate", "Timestamp"])
-
-            # Write the actual batch info
-            # defect_rate = (self.defect_count / self.production_count) * 100 if self.production_count else 0
-            # writer.writerow([
-            #     self.production_count,
-            #     round(defect_rate, 2),
-            #     timestamp
-            # ])
 
         # Initialize alert system
         self.alerts = []
@@ -290,6 +261,8 @@ class SmartFactoryController:
         self.quality_score = 100.0
         self.machine_status = "STANDBY"
         self.emergency_mode = False
+        self.quality_checked_items = set()  # Reset checked items
+        print(f"[DEBUG] Production reset. quality_checked_items reset: {self.quality_checked_items}")
         self.update_session_state()
 
     def load_quality_model(self):
@@ -594,53 +567,116 @@ class SmartFactoryController:
 
     #     return frame
 
-    def plot_defect_rate(self):
-        """Plot batch size vs. defect rate from the CSV file."""
+    def plot_defect_rate(self, date_str=None):
+        """Plot batch size vs. defect rate for a specific date from the CSV file, with trend analysis and statistics box."""
         try:
+            matplotlib.use('Agg')
+
             if not os.path.exists(self.safety_check_records):
                 print("❌ No safety check records found")
                 return None
-            
-            # Read data from CSV file
-            data = pd.read_csv(self.safety_check_records)
-            
-            if data.empty:
-                print("❌ No data available for visualization")
+
+            with open(self.safety_check_records, "r") as f:
+                lines = f.readlines()
+
+            if date_str is None:
+                date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+            # Find the section for the given date
+            section_start = None
+            section_end = None
+            for i, line in enumerate(lines):
+                if line.strip() == f"---- {date_str} ----":
+                    section_start = i
+                    for j in range(i + 1, len(lines)):
+                        if lines[j].startswith("----"):
+                            section_end = j
+                            break
+                    if section_end is None:
+                        section_end = len(lines)
+                    break
+
+            if section_start is None:
+                print(f"❌ No data found for date {date_str}")
                 return None
 
-            # Filter out date headers and get only numeric data
-            numeric_data = data[pd.to_numeric(data['Batch Size'], errors='coerce').notna()]
-            
-            if numeric_data.empty:
-                print("❌ No numeric data available for visualization")
+            section_lines = lines[section_start+1:section_end]
+            batch_sizes, defect_rates, timestamps = [], [], []
+            for line in section_lines:
+                line = line.strip()
+                if line == "" or line.startswith("Batch Size"):
+                    continue
+                parts = line.split(',')
+                if len(parts) >= 3:
+                    try:
+                        batch_size = int(float(parts[0]))
+                        defect_rate = float(parts[1])
+                        batch_sizes.append(batch_size)
+                        defect_rates.append(defect_rate)
+                    except Exception as e:
+                        print(f"⚠️ Skipping malformed line: {line} - Error: {e}")
+                        continue
+
+            if not batch_sizes:
+                print(f"❌ No valid data available for {date_str}")
                 return None
 
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(numeric_data["Batch Size"], numeric_data["Defect Rate"],
-                    marker='o', linewidth=2, markersize=8,
-                    color='#2ecc71', markeredgecolor='white',
-                    markeredgewidth=2)
+            # Plotting
+            fig, ax = plt.subplots(figsize=(12, 8))
+            sorted_data = sorted(zip(batch_sizes, defect_rates))
+            sorted_batch_sizes, sorted_defect_rates = zip(*sorted_data)
+            ax.plot(sorted_batch_sizes, sorted_defect_rates, marker='o', linewidth=2, markersize=8,
+                    color='#2ecc71', markeredgecolor='white', markeredgewidth=2, label='Defect Rate', alpha=0.7)
 
+            # Trend line and R²
+            if len(sorted_batch_sizes) > 1:
+                x = np.array(sorted_batch_sizes)
+                y = np.array(sorted_defect_rates)
+                z = np.polyfit(x, y, 1)
+                p = np.poly1d(z)
+                ax.plot(x, p(x), color='#e67e22', linestyle='-', linewidth=2, label=f'Trend Line (slope: {z[0]:.3f})')
+                y_pred = p(x)
+                ss_res = np.sum((y - y_pred) ** 2)
+                ss_tot = np.sum((y - np.mean(y)) ** 2)
+                r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+                ax.text(0.02, 0.98, f"Trend Quality (R²): {r_squared:.3f}", transform=ax.transAxes,
+                        fontsize=10, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+            # Mean line
+            mean_rate = np.mean(sorted_defect_rates)
+            ax.axhline(y=mean_rate, color='#e74c3c', linestyle='--', alpha=0.8,
+                       linewidth=2, label=f'Mean Rate: {mean_rate:.2f}%')
+
+            # Statistics box
+            stats_text = (
+                f"Statistics:\n"
+                f"• Total Batches: {len(sorted_batch_sizes)}\n"
+                f"• Average Defect Rate: {mean_rate:.2f}%\n"
+                f"• Max Defect Rate: {max(sorted_defect_rates):.2f}%\n"
+                f"• Min Defect Rate: {min(sorted_defect_rates):.2f}%\n"
+                f"• Range: {max(sorted_defect_rates) - min(sorted_defect_rates):.2f}%"
+            )
+            ax.text(0.02, 0.02, stats_text, transform=ax.transAxes,
+                    fontsize=9, verticalalignment='bottom',
+                    bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+
+            # Formatting
             ax.grid(True, linestyle='--', alpha=0.7)
             ax.set_xlabel("Batch Size", fontsize=12, fontweight='bold')
             ax.set_ylabel("Defect Rate (%)", fontsize=12, fontweight='bold')
-            ax.set_title("Batch Size vs. Defect Rate Analysis",
-                        fontsize=14, fontweight='bold', pad=20)
-
-            mean_rate = numeric_data["Defect Rate"].mean()
-            ax.axhline(y=mean_rate, color='#e74c3c', linestyle='--', alpha=0.8,
-                    label=f'Mean Rate: {mean_rate:.2f}%')
-
+            ax.set_title(f"Batch Size vs. Defect Rate Trend Analysis ({date_str})",
+                         fontsize=14, fontweight='bold', pad=20)
             ax.tick_params(axis='both', labelsize=10)
             ax.legend(fontsize=10)
             plt.tight_layout()
-
             return fig
-            
+
         except Exception as e:
             print(f"❌ Error plotting defect rate: {e}")
+            import traceback
+            traceback.print_exc()
             return None
-    
 
     def generate_report(self):
         """Generate a CSV report of the safety checks"""
@@ -675,11 +711,9 @@ class SmartFactoryController:
         return None
 
     def log_safety_check(self, batch_size, defect_rate, timestamp):
-        """Log safety check data with proper date organization"""
+        """Log safety check data with proper date organization - prevents duplicate headers"""
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        header = f"---- {today} ----\n"
-        columns = "Batch Size,Defect Rate,Timestamp\n"
-        entry = f"{batch_size},{defect_rate:.2f},{timestamp}\n"
+        entry = f"{int(batch_size)},{defect_rate:.2f},{timestamp}\n"
 
         # Read existing content
         if os.path.exists(self.safety_check_records):
@@ -688,36 +722,42 @@ class SmartFactoryController:
         else:
             lines = []
 
-        # Find today's header
-        today_section_start = -1
-        today_section_end = len(lines)
-        
-        for i, line in enumerate(lines):
+        # Clean up any empty lines at the end
+        while lines and lines[-1].strip() == "":
+            lines.pop()
+
+        # Check if today's section already exists
+        today_section_exists = False
+        for line in lines:
             if line.strip() == f"---- {today} ----":
-                today_section_start = i
-                # Find where this section ends (next date header or end of file)
-                for j in range(i + 1, len(lines)):
-                    if lines[j].startswith("----"):
-                        today_section_end = j
-                        break
+                today_section_exists = True
                 break
 
-        if today_section_start == -1:
-            # Today's header not found, append at end
+        if not today_section_exists:
+            # Today's section doesn't exist, create it
             if lines and not lines[-1].endswith('\n'):
                 lines.append('\n')
-            lines.append(header)
-            lines.append(columns)
+            lines.append(f"---- {today} ----\n")
+            lines.append("Batch Size,Defect Rate,Timestamp\n")
             lines.append(entry)
         else:
-            # Today's section exists, insert entry after the columns line
-            insert_pos = today_section_start + 2  # After header and columns
-            lines.insert(insert_pos, entry)
+            # Today's section exists, find the last line of today's section and append after it
+            today_section_end = len(lines)
+            for i, line in enumerate(lines):
+                if line.strip() == f"---- {today} ----":
+                    # Find where this section ends (next date header or end of file)
+                    for j in range(i + 1, len(lines)):
+                        if lines[j].startswith("----"):
+                            today_section_end = j
+                            break
+                    break
+            
+            # Insert entry at the end of today's section
+            lines.insert(today_section_end, entry)
 
         # Write back
         with open(self.safety_check_records, "w") as f:
             f.writelines(lines)
-        
         print(f"📊 Logged: Batch={batch_size}, Defect Rate={defect_rate:.2f}%, Time={timestamp}")
 
     def process_frame(self, frame):
@@ -756,13 +796,13 @@ class SmartFactoryController:
                 
                 # Add production indicator text
                 if self.production_mode:
-                    cv2.putText(frame, f"PRODUCTION - Item {self.production_count + 1}", 
+                    cv2.putText(frame, f"PRODUCTION - Item {self.production_count}", 
                                (overlay_x, overlay_y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 elif self.machine_status == "QUALITY CHECK":
-                    cv2.putText(frame, f"QUALITY CHECK - Item {self.production_count + 1}", 
+                    cv2.putText(frame, f"QUALITY CHECK - Item {self.production_count}", 
                                (overlay_x, overlay_y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
                 else:
-                    cv2.putText(frame, f"READY - Item {self.production_count + 1}", 
+                    cv2.putText(frame, f"READY - Item {self.production_count}", 
                                (overlay_x, overlay_y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
                 
                 # Show expected label (for testing purposes) - smaller text
@@ -775,7 +815,7 @@ class SmartFactoryController:
                 
                 # Show appropriate instructions based on current state
                 if self.production_mode:
-                    cv2.putText(frame, "Show PALM for quality check", (10, 30), 
+                    cv2.putText(frame, "Show PALM to pause for quality check", (10, 30), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                     cv2.putText(frame, "Show FIST to stop production", (10, 60), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -895,13 +935,20 @@ class SmartFactoryController:
                 # Handle production mode specific gestures
                 if self.production_mode and not self.emergency_mode:
                     if gesture == "quality_check":
-                        # In production mode, palm performs quality check on current item
+                        # In production mode, palm pauses production and performs quality check on current item
+                        self.machine_status = "QUALITY CHECK"
+                        self.production_mode = False  # Pause production
                         self.perform_production_quality_check(output_frame)
-                        print("🔍 Quality check completed on current item")
+                        print("🔍 Production paused for quality check")
                     elif gesture == "emergency_stop":
                         # In production mode, fist stops production and logs batch
                         self.stop_production_and_log_batch()
                         print("🛑 Production stopped and batch logged")
+                    elif gesture == "start_production" and self.machine_status == "QUALITY CHECK":
+                        # Resume production after quality check
+                        self.machine_status = "RUNNING"
+                        self.production_mode = True
+                        print("🏭 Production resumed after quality check")
                     return output_frame
                 # Handle simulation mode specific gestures
                 elif self.simulation_mode:
@@ -1013,22 +1060,14 @@ class SmartFactoryController:
                     cv2.putText(output_frame, result_text, (10, 60), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, result_color, 2)
                     
-                    # Log it (only if batch size is valid)
-                    if self.batch_size > 0:
-                        self.log_safety_check(
-                            self.batch_size, 
-                            defect_result['defect_rate'], 
-                            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        )
-                        
-                        # Update defect count based on actual detection
-                        if defect_result['is_defective']:
-                            self.defect_count += 1
-                            print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
-                        else:
-                            print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
+                    # Update defect count based on actual detection (but don't log to CSV yet)
+                    if defect_result['is_defective']:
+                        self.defect_count += 1
+                        print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
                     else:
-                        print("⚠️ Cannot log: Batch size is 0")
+                        print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
+                    
+                    # Note: CSV logging will only happen when production is stopped via emergency stop
 
                 # Update stats with cooldown for all other gestures
                 if time.time() - self.last_gesture_time > self.gesture_cooldown and gesture != "start_production":
@@ -1042,30 +1081,21 @@ class SmartFactoryController:
             current_time = time.time()
             if not hasattr(self, 'last_production_time'):
                 self.last_production_time = current_time
-            
             # Increment production every 2 seconds while in production mode
             if current_time - self.last_production_time >= 2.0:
                 self.production_count += 1
                 self.total_production += 1
                 self.batch_size = self.production_count  # Keep batch size synchronized with production count
                 self.last_production_time = current_time
+                self.quality_checked_items.discard(f"{self.production_count}_{self.current_production_index}")  # Remove from checked set if new item
                 print(f"🏭 Producing... Count: {self.production_count}")
-                
+                print(f"[DEBUG] quality_checked_items: {self.quality_checked_items}")
                 # Change image based on production count (every 2 production counts)
                 if self.production_count > 0 and self.production_count % 2 == 0:
-                    # Calculate which image to show based on production count
                     image_index = (self.production_count // 2) % len(self.production_images)
                     if image_index != self.current_production_index:
                         self.current_production_index = image_index
                         print(f"🏭 Production item {self.production_count} - Image {self.current_production_index + 1}/{len(self.production_images)}")
-            
-            # Add continuous production indicator on frame (only if not in test/simulation mode)
-            if not self.test_mode and not self.simulation_mode:
-                cv2.putText(output_frame, "PRODUCTION RUNNING", (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                # Add pulsing green dot indicator
-                pulse_intensity = int(127 + 127 * np.sin(time.time() * 3))
-                cv2.circle(output_frame, (250, 25), 8, (0, pulse_intensity, 0), -1)
         
         # During quality check, continue showing production items but don't increment
         elif self.machine_status == "QUALITY CHECK" and not self.emergency_mode:
@@ -1507,20 +1537,12 @@ class SmartFactoryController:
             cv2.putText(frame, rate_text, (10, 200), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
-            # Log the quality check result
-            if self.batch_size > 0:
-                self.log_safety_check(
-                    self.batch_size, 
-                    defect_result['defect_rate'], 
-                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                )
-                
-                # Update defect count based on actual detection
-                if defect_result['is_defective']:
-                    self.defect_count += 1
-                    print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
-                else:
-                    print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
+            # Update defect count based on actual detection (but don't log to CSV yet)
+            if defect_result['is_defective']:
+                self.defect_count += 1
+                print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
+            else:
+                print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
             
             # Show if prediction matches expected (for testing purposes)
             is_correct = defect_result['is_defective'] == (expected_label == 'defective')
@@ -1540,26 +1562,37 @@ class SmartFactoryController:
     def perform_production_quality_check(self, frame):
         """Perform quality check on current production item"""
         try:
-            # Get expected label for current production item
             expected_label = self.get_current_production_label()
             if not expected_label:
                 print("❌ No expected label found for current production item")
                 return
-            
-            # Get the actual production image for defect detection (not the camera frame)
             production_image = self.get_current_production_image()
             if production_image is None:
                 print("❌ Could not load production image for quality check")
                 return
-            
-            # Add visual feedback for quality check
-            cv2.putText(frame, "QUALITY CHECK IN PROGRESS...", (10, 140), 
+            item_id = f"{self.production_count}_{self.current_production_index}"
+            if item_id in self.quality_checked_items:
+                print(f"[DEBUG] Item {item_id} already checked. Defect count: {self.defect_count}")
+                cv2.putText(frame, "ITEM ALREADY QUALITY CHECKED", (10, 140), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                cv2.putText(frame, "Show PEACE to resume production", (10, 260), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                cv2.putText(frame, "Show FIST to stop production", (10, 280), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                return
+            cv2.putText(frame, "PRODUCTION PAUSED - QUALITY CHECK", (10, 140), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            
-            # Run actual defect detection on the production image (not the camera frame)
             defect_result = self.predict_defect(production_image)
-            print(f"🔍 Quality Check Result: Defect Rate={defect_result['defect_rate']:.2f}%, Defective={defect_result['is_defective']}")
-            
+            print(f"[DEBUG] Quality Check: {item_id}, Defective: {defect_result['is_defective']}, Defect count before: {self.defect_count}")
+            if defect_result['is_defective']:
+                self.defect_count += 1
+                print(f"[DEBUG] Defect detected! Defect count now: {self.defect_count}")
+            else:
+                print(f"[DEBUG] Item passed. Defect count unchanged: {self.defect_count}")
+            self.quality_checked_items.add(item_id)
+            print(f"[DEBUG] quality_checked_items: {self.quality_checked_items}")
+            # ... rest of method unchanged ...
+
             # Show result on frame
             result_text = f"QUALITY RESULT: {'DEFECTIVE' if defect_result['is_defective'] else 'PASSED'}"
             result_color = (0, 0, 255) if defect_result['is_defective'] else (0, 255, 0)
@@ -1571,21 +1604,6 @@ class SmartFactoryController:
             cv2.putText(frame, rate_text, (10, 200), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
-            # Log the quality check result
-            if self.batch_size > 0:
-                self.log_safety_check(
-                    self.batch_size, 
-                    defect_result['defect_rate'], 
-                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                )
-                
-                # Update defect count based on actual detection
-                if defect_result['is_defective']:
-                    self.defect_count += 1
-                    print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
-                else:
-                    print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
-            
             # Show if prediction matches expected (for testing purposes)
             is_correct = defect_result['is_defective'] == (expected_label == 'defective')
             correct_text = "✓ CORRECT DETECTION" if is_correct else "✗ INCORRECT DETECTION"
@@ -1596,6 +1614,8 @@ class SmartFactoryController:
             # Show instructions to resume production
             cv2.putText(frame, "Show PEACE to resume production", (10, 260), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            cv2.putText(frame, "Show FIST to stop production", (10, 280), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             
             print(f"📊 Quality Check: Predicted={'Defective' if defect_result['is_defective'] else 'Non-defective'}, "
                   f"Expected={expected_label}, Correct={is_correct}")
@@ -1702,10 +1722,7 @@ class SmartFactoryController:
     def stop_production_and_log_batch(self):
         """Stop production and log the current batch with defect rate"""
         try:
-            # Calculate defect rate for current batch
             defect_rate = (self.defect_count / max(self.production_count, 1)) * 100
-            
-            # Log the batch to CSV
             if self.production_count > 0:
                 self.log_safety_check(
                     self.production_count, 
@@ -1713,20 +1730,126 @@ class SmartFactoryController:
                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 )
                 print(f"📊 Batch logged: Size={self.production_count}, Defect Rate={defect_rate:.2f}%, Defects={self.defect_count}")
-            
-            # Stop production
             self.machine_status = "EMERGENCY"
             self.emergency_mode = True
             self.production_mode = False
-            
-            print(f"🛑 Production stopped. Final batch: {self.production_count} items, {self.defect_count} defects, {defect_rate:.2f}% defect rate")
-            
+            self.quality_checked_items = set()  # Reset checked items for new batch
+            print(f"[DEBUG] Production stopped. quality_checked_items reset: {self.quality_checked_items}")
         except Exception as e:
             print(f"❌ Error stopping production and logging batch: {e}")
-            # Still stop production even if logging fails
             self.machine_status = "EMERGENCY"
             self.emergency_mode = True
             self.production_mode = False
+            self.quality_checked_items = set()
+
+    def get_available_dates(self):
+        """Get list of available dates from the safety check records"""
+        try:
+            if not os.path.exists(self.safety_check_records):
+                return []
+            
+            with open(self.safety_check_records, "r") as f:
+                lines = f.readlines()
+            
+            dates = []
+            for line in lines:
+                line = line.strip()
+                if line.startswith("---- ") and line.endswith(" ----"):
+                    date_str = line.replace("---- ", "").replace(" ----", "")
+                    dates.append(date_str)
+            
+            return dates
+        except Exception as e:
+            print(f"❌ Error reading available dates: {e}")
+            return []
+
+    def cleanup_csv_file(self):
+        """Clean up the CSV file by removing duplicate headers and consolidating data"""
+        try:
+            if not os.path.exists(self.safety_check_records):
+                return
+            
+            with open(self.safety_check_records, "r") as f:
+                lines = f.readlines()
+            
+            if not lines:
+                return
+            
+            # Parse all data from the file
+            all_data = []
+            current_date = None
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                if line.startswith("---- ") and line.endswith(" ----"):
+                    current_date = line.replace("---- ", "").replace(" ----", "")
+                elif line == "Batch Size,Defect Rate,Timestamp":
+                    continue  # Skip column headers
+                elif "," in line and current_date:
+                    # This is a data line
+                    parts = line.split(',')
+                    if len(parts) >= 3:
+                        try:
+                            batch_size = int(parts[0])
+                            defect_rate = float(parts[1])
+                            timestamp = parts[2]
+                            all_data.append({
+                                'date': current_date,
+                                'batch_size': batch_size,
+                                'defect_rate': defect_rate,
+                                'timestamp': timestamp
+                            })
+                        except (ValueError, IndexError):
+                            continue
+            
+            # Group data by date
+            data_by_date = {}
+            for entry in all_data:
+                date = entry['date']
+                if date not in data_by_date:
+                    data_by_date[date] = []
+                data_by_date[date].append(entry)
+            
+            # Write back the cleaned file
+            with open(self.safety_check_records, "w") as f:
+                for date in sorted(data_by_date.keys()):
+                    f.write(f"---- {date} ----\n")
+                    f.write("Batch Size,Defect Rate,Timestamp\n")
+                    for entry in data_by_date[date]:
+                        f.write(f"{entry['batch_size']},{entry['defect_rate']:.2f},{entry['timestamp']}\n")
+                    f.write("\n")
+            
+            print(f"✅ Cleaned up CSV file. Found {len(all_data)} entries across {len(data_by_date)} dates.")
+            
+        except Exception as e:
+            print(f"❌ Error cleaning up CSV file: {e}")
+
+    def test_matplotlib(self):
+        """Test if matplotlib is working properly"""
+        try:
+           
+            matplotlib.use('Agg')
+            
+            
+            # Create a simple test plot
+            fig, ax = plt.subplots(figsize=(6, 4))
+            x = [1, 2, 3, 4, 5]
+            y = [1, 4, 2, 5, 3]
+            ax.plot(x, y, 'bo-')
+            ax.set_title('Test Plot')
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            plt.tight_layout()
+            
+            print("✅ Matplotlib test successful")
+            return fig
+            
+        except Exception as e:
+            print(f"❌ Matplotlib test failed: {e}")
+            return None
 
 def main():
     st.set_page_config(
@@ -1779,12 +1902,22 @@ def main():
                 analysis_col1, analysis_col2 = st.columns(2)
                 
                 with analysis_col1:
+                    # Date selector for graph
+                    available_dates = controller.get_available_dates()
+                    if available_dates:
+                        selected_date = st.selectbox("Select Date for Graph", available_dates, index=len(available_dates)-1)
+                    else:
+                        selected_date = None
                     if st.button("Generate Graph"):
-                        fig = controller.plot_defect_rate()
-                        if fig:
-                            st.pyplot(fig)
-                        else:
-                            st.warning("No data available for visualization")
+                        try:
+                            fig = controller.plot_defect_rate(selected_date)
+                            if fig is not None:
+                                st.pyplot(fig)
+                            else:
+                                st.error("❌ Failed to generate graph. Check console for details.")
+                        except Exception as e:
+                            st.error(f"❌ Error generating graph: {str(e)}")
+                            print(f"❌ Streamlit error: {e}")
                 
                 with analysis_col2:
                     if st.button("Export Report"):
@@ -1803,11 +1936,23 @@ def main():
                 
                 # Add model testing section
                 st.header("Model Testing")
-                if st.button("Test Defect Model"):
-                    if controller.test_defect_model():
-                        st.success("✅ Defect detection model is working correctly!")
-                    else:
-                        st.error("❌ Defect detection model test failed!")
+                test_col1, test_col2 = st.columns(2)
+                
+                with test_col1:
+                    if st.button("Test Defect Model"):
+                        if controller.test_defect_model():
+                            st.success("✅ Defect detection model is working correctly!")
+                        else:
+                            st.error("❌ Defect detection model test failed!")
+                
+                with test_col2:
+                    if st.button("Test Matplotlib"):
+                        test_fig = controller.test_matplotlib()
+                        if test_fig is not None:
+                            st.pyplot(test_fig)
+                            st.success("✅ Matplotlib is working correctly!")
+                        else:
+                            st.error("❌ Matplotlib test failed!")
                 
                 # Add test mode controls
                 st.header("Dataset Testing")

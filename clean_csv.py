@@ -55,7 +55,7 @@ def clean_csv():
         parts = line.split(',')
         if len(parts) == 3:
             try:
-                batch_size = float(parts[0])
+                batch_size = int(float(parts[0]))  # Convert float to int
                 defect_rate = float(parts[1])
                 timestamp = parts[2]
                 
