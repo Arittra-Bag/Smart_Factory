@@ -16,6 +16,20 @@ import matplotlib
 from auth_manager import AuthManager
 import io
 import traceback
+import mysql.connector
+from mysql.connector import Error
+from dotenv import load_dotenv
+import google.generativeai as genai
+import base64
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize session state for camera and production data
 if 'camera' not in st.session_state:
@@ -99,10 +113,16 @@ class SmartFactoryController:
         self.alert_thread = threading.Thread(target=self.alert_monitor, daemon=True)
         self.alert_thread.start()
         self.quality_model = None
+        
+        # Initialize Gemini API
+        self.init_gemini_api()
 
     def predict_defect(self, image):
         if image is None or image.size == 0:
             print("❌ Empty image passed to predict_defect")
+            return {'defect_rate': 0.0, 'is_defective': False, 'prediction': 0.0}
+        if self.defect_model is None:
+            print("❌ Defect model is not loaded. Cannot predict.")
             return {'defect_rate': 0.0, 'is_defective': False, 'prediction': 0.0}
         try:
             # Resize to match model input (128x128 as per training)
@@ -503,58 +523,87 @@ class SmartFactoryController:
                 return report_filename
         return None
 
+    def log_safety_check_mysql(self, batch_size, defect_rate, timestamp):
+        try:
+            connection = mysql.connector.connect(
+                host=os.getenv('DB_HOST', ''),
+                user=os.getenv('DB_USER', ''),
+                password=os.getenv('DB_PASSWORD', ''),
+                database=os.getenv('DB_NAME', '')
+            )
+            cursor = connection.cursor()
+            batch_date = datetime.datetime.now().date()
+            sql = """
+                INSERT INTO safety_check_records (batch_date, batch_size, defect_rate, timestamp)
+                VALUES (%s, %s, %s, %s)
+            """
+            cursor.execute(sql, (batch_date, int(batch_size), float(defect_rate), timestamp))
+            connection.commit()
+            cursor.close()
+            connection.close()
+            print(f"✅ Logged to MySQL: Batch={batch_size}, Defect Rate={defect_rate:.2f}%, Time={timestamp}")
+        except Error as e:
+            print(f"❌ MySQL logging error: {e}")
+
+    # Log to csv file.
     def log_safety_check(self, batch_size, defect_rate, timestamp):
-        """Log safety check data with proper date organization - prevents duplicate headers"""
+        """Log safety check data to CSV grouped by date sections like ---- YYYY-MM-DD ----"""
+
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         entry = f"{int(batch_size)},{defect_rate:.2f},{timestamp}\n"
 
-        # Read existing content
+        # Load existing lines
         if os.path.exists(self.safety_check_records):
             with open(self.safety_check_records, "r") as f:
                 lines = f.readlines()
         else:
             lines = []
 
-        # Clean up any empty lines at the end
-        print(f"🔍 Cleaning up empty lines. Lines count: {len(lines)}")
+        # Clean empty trailing lines
         while lines and lines[-1].strip() == "":
-            print(f"  🗑️ Popping empty line: '{lines[-1].strip()}'")
             lines.pop()
-            print(f"  📊 Lines count after pop: {len(lines)}")
 
-        # Check if today's section already exists
-        today_section_exists = False
-        for line in lines:
-            if line.strip() == f"---- {today} ----":
-                today_section_exists = True
+        # Check if today's section exists
+        today_header = f"---- {today} ----\n"
+        section_start = None
+        section_end = None
+
+        for i, line in enumerate(lines):
+            if line == today_header:
+                section_start = i
+                # Look for end of section
+                for j in range(i + 1, len(lines)):
+                    if lines[j].startswith("----"):
+                        section_end = j
+                        break
+                else:
+                    section_end = len(lines)
                 break
 
-        if not today_section_exists:
-            # Today's section doesn't exist, create it
+        if section_start is None:
+            # Section for today doesn't exist; add at the end
             if lines and not lines[-1].endswith('\n'):
-                lines.append('\n')
-            lines.append(f"---- {today} ----\n")
+                lines[-1] += '\n'
+            lines.append(f"\n{today_header}")
             lines.append("Batch Size,Defect Rate,Timestamp\n")
             lines.append(entry)
         else:
-            # Today's section exists, find the last line of today's section and append after it
-            today_section_end = len(lines)
-            for i, line in enumerate(lines):
-                if line.strip() == f"---- {today} ----":
-                    # Find where this section ends (next date header or end of file)
-                    for j in range(i + 1, len(lines)):
-                        if lines[j].startswith("----"):
-                            today_section_end = j
-                            break
-                    break
-            
-            # Insert entry at the end of today's section
-            lines.insert(today_section_end, entry)
+            # Section exists, insert entry before section_end
+            insert_index = section_end
+            if insert_index is None:
+                insert_index = len(lines)
+            if lines[section_start + 1].strip() != "Batch Size,Defect Rate,Timestamp":
+                lines.insert(section_start + 1, "Batch Size,Defect Rate,Timestamp\n")
+                insert_index += 1
+            lines.insert(insert_index, entry)
+
 
         # Write back
         with open(self.safety_check_records, "w") as f:
             f.writelines(lines)
         print(f"📊 Logged: Batch={batch_size}, Defect Rate={defect_rate:.2f}%, Time={timestamp}")
+        # Log to MySQL as well
+        self.log_safety_check_mysql(batch_size, defect_rate, timestamp)
 
     def process_frame(self, frame):
         # Calculate FPS
@@ -732,8 +781,8 @@ class SmartFactoryController:
                 if self.production_mode and not self.emergency_mode:
                     if gesture == "quality_check":
                         # In production mode, palm pauses production and performs quality check on current item
-                        self.machine_status = "QUALITY CHECK"
-                        self.production_mode = False  # Pause production
+                        # self.machine_status = "QUALITY CHECK"
+                        # self.production_mode = False  # Pause production
                         self.perform_production_quality_check(output_frame)
                         print("🔍 Production paused for quality check")
                     elif gesture == "emergency_stop":
@@ -756,20 +805,48 @@ class SmartFactoryController:
                         self.stop_simulation_mode()
                         print("🛑 Simulation stopped")
                     return output_frame
+
                 # Handle test mode specific gestures
-                elif self.test_mode:
-                    if gesture == "start_production":
-                        # In test mode, peace sign moves to next image
-                        self.next_test_image()
-                        print("🔄 Moved to next test image")
-                    elif gesture == "quality_check":
-                        # In test mode, palm performs defect detection test
-                        self.perform_test_defect_detection(output_frame)
-                    elif gesture == "emergency_stop":
-                        # In test mode, fist stops test mode
-                        self.stop_test_mode()
-                        print("🛑 Test mode stopped")
-                    return output_frame
+                # elif self.test_mode:
+                #     if gesture == "start_production":
+                #         # In test mode, peace sign moves to next image
+                #         self.next_test_image()
+                #         print("🔄 Moved to next test image")
+                #     elif gesture == "quality_check":
+                #         print("🔍 Palm gesture triggered quick quality check")
+                #         item_key = f"{self.production_count}_{self.current_production_index}"
+                #         if item_key in self.quality_checked_items:
+                #             print(f"[PALM QC] ✅ Already checked item {item_key}")
+                #         else:
+                #             detection_image = self.get_current_production_image()
+                #             if detection_image is None:
+                #                 detection_image = output_frame
+
+                #             defect_result = self.predict_defect(detection_image)
+                #             print(f"[PALM QC] 🔍 Result: {defect_result['defect_rate']:.2f}%, Defective={defect_result['is_defective']}")
+
+                #             result_text = f"DEFECT RATE: {defect_result['defect_rate']:.1f}%"
+                #             result_color = (0, 0, 255) if defect_result['is_defective'] else (0, 255, 0)
+                #             cv2.putText(output_frame, result_text, (10, 90), 
+                #                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, result_color, 2)
+
+                            
+                #             if item_key not in self.quality_checked_items:
+                #                 result = self.predict_defect(detection_image)
+                #                 if result['is_defective']:
+                #                     self.defect_count += 1
+                #                     print(f"[AUTO QC] Defective item detected! Defect count: {self.defect_count}")
+                #                 self.quality_checked_items.add(item_key)
+                #             else:
+                #                 print(f"[AUTO QC] Item {item_key} already checked. Skipping.")
+
+                #             self.quality_checked_items.add(item_key)
+
+                #     elif gesture == "emergency_stop":
+                #         # In test mode, fist stops test mode
+                #         self.stop_test_mode()
+                #         print("🛑 Test mode stopped")
+                #     return output_frame
 
                 # Emergency stop - ALWAYS stops production regardless of current state
                 if gesture == "emergency_stop":
@@ -857,11 +934,19 @@ class SmartFactoryController:
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, result_color, 2)
                     
                     # Update defect count based on actual detection (but don't log to CSV yet)
-                    if defect_result['is_defective']:
-                        self.defect_count += 1
-                        print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
+                    # Generate a unique key for the item (same logic as gesture-based)
+                    item_key = f"image_{self.current_production_index}"
+
+                    if item_key not in self.quality_checked_items:
+                        result = self.predict_defect(detection_image)
+                        if result['is_defective']:
+                            self.defect_count += 1
+                            print(f"[GESTURE QC] Defective item detected! Defect count: {self.defect_count}")
+                        self.quality_checked_items.add(item_key)
+                        print(f"[GESTURE QC] ✅ Image {self.current_production_index + 1} marked as checked. Total checked: {len(self.quality_checked_items)}")
                     else:
-                        print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
+                        print(f"[GESTURE QC] Image {self.current_production_index + 1} already checked. Skipping.")
+
                     
                     # Note: CSV logging will only happen when production is stopped via emergency stop
 
@@ -880,18 +965,49 @@ class SmartFactoryController:
             # Increment production every 2 seconds while in production mode
             if current_time - self.last_production_time >= 2.0:
                 self.production_count += 1
-                self.total_production += 1
-                self.batch_size = self.production_count  # Keep batch size synchronized with production count
                 self.last_production_time = current_time
-                self.quality_checked_items.discard(f"{self.production_count}_{self.current_production_index}")  # Remove from checked set if new item
                 print(f"🏭 Producing... Count: {self.production_count}")
-                print(f"[DEBUG] quality_checked_items: {self.quality_checked_items}")
-                # Change image based on production count (every 2 production counts)
-                if self.production_count > 0 and self.production_count % 2 == 0:
-                    image_index = (self.production_count // 2) % len(self.production_images)
-                    if image_index != self.current_production_index:
-                        self.current_production_index = image_index
-                        print(f"🏭 Production item {self.production_count} - Image {self.current_production_index + 1}/{len(self.production_images)}")
+
+            # Auto defect detection (runs only once per image, not per production count)
+            # Calculate which image we're currently showing
+            current_image_index = (self.production_count // 2) % len(self.production_images) if self.production_images else 0
+            item_key = f"image_{current_image_index}"  # Use image index instead of production count
+            
+            expected_label = self.get_current_production_label()
+
+            # Only run auto detection if this image hasn't been checked yet
+            if expected_label == 'defective' and item_key not in self.quality_checked_items:
+                detection_image = self.get_current_production_image()
+                if detection_image is None:
+                    detection_image = output_frame
+                defect_result = self.predict_defect(detection_image)
+                print(f"[AUTO QC] 🔍 Image {current_image_index + 1} - Expected DEFECTIVE - Detected defect rate: {defect_result['defect_rate']:.2f}%, Defective: {defect_result['is_defective']}")
+
+                # Show result briefly on frame
+                result_text = f"DEFECT RATE: {defect_result['defect_rate']:.1f}%"
+                result_color = (0, 0, 255) if defect_result['is_defective'] else (0, 255, 0)
+                cv2.putText(output_frame, result_text, (10, 90), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, result_color, 2)
+
+                if defect_result['is_defective']:
+                    self.defect_count += 1
+                    print(f"[AUTO QC] ⚠️ Confirmed defect. Total defects: {self.defect_count}")
+                else:
+                    print(f"[AUTO QC] ✅ Passed auto check")
+
+                # Mark this image as checked
+                self.quality_checked_items.add(item_key)
+                print(f"[AUTO QC] ✅ Image {current_image_index + 1} marked as checked. Total checked: {len(self.quality_checked_items)}")
+
+            self.total_production += 1
+            self.batch_size = self.production_count  # Keep batch size synchronized with production count
+            
+            # Change image based on production count (every 2 production counts)
+            if self.production_count > 0 and self.production_count % 2 == 0:
+                image_index = (self.production_count // 2) % len(self.production_images)
+                if image_index != self.current_production_index:
+                    self.current_production_index = image_index
+                    print(f"🏭 Production item {self.production_count} - Image {self.current_production_index + 1}/{len(self.production_images)}")
         
         # During quality check, continue showing production items but don't increment
         elif self.machine_status == "QUALITY CHECK" and not self.emergency_mode:
@@ -1334,11 +1450,11 @@ class SmartFactoryController:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
             # Update defect count based on actual detection (but don't log to CSV yet)
-            if defect_result['is_defective']:
-                self.defect_count += 1
-                print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
-            else:
-                print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
+            # if defect_result['is_defective']:
+            #     self.defect_count += 1
+            #     print(f"⚠️ Defect detected! Total defects: {self.defect_count}")
+            # else:
+            #     print(f"✅ Item passed quality check. Total defects: {self.defect_count}")
             
             # Show if prediction matches expected (for testing purposes)
             is_correct = defect_result['is_defective'] == (expected_label == 'defective')
@@ -1366,28 +1482,34 @@ class SmartFactoryController:
             if production_image is None:
                 print("❌ Could not load production image for quality check")
                 return
-            item_id = f"{self.production_count}_{self.current_production_index}"
-            if item_id in self.quality_checked_items:
-                print(f"[DEBUG] Item {item_id} already checked. Defect count: {self.defect_count}")
-                cv2.putText(frame, "ITEM ALREADY QUALITY CHECKED", (10, 140), 
+            
+            # Use consistent item key logic (image-based, not production count-based)
+            item_key = f"image_{self.current_production_index}"
+            
+            if item_key in self.quality_checked_items:
+                print(f"[DEBUG] Image {self.current_production_index + 1} already checked. Defect count: {self.defect_count}")
+                cv2.putText(frame, "IMAGE ALREADY QUALITY CHECKED", (10, 140), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                 cv2.putText(frame, "Show PEACE to resume production", (10, 260), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
                 cv2.putText(frame, "Show FIST to stop production", (10, 280), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                 return
+                
             cv2.putText(frame, "PRODUCTION PAUSED - QUALITY CHECK", (10, 140), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             defect_result = self.predict_defect(production_image)
-            print(f"[DEBUG] Quality Check: {item_id}, Defective: {defect_result['is_defective']}, Defect count before: {self.defect_count}")
-            if defect_result['is_defective']:
-                self.defect_count += 1
-                print(f"[DEBUG] Defect detected! Defect count now: {self.defect_count}")
+            print(f"[DEBUG] Quality Check: Image {self.current_production_index + 1}, Defective: {defect_result['is_defective']}, Defect count before: {self.defect_count}")
+
+            # Only increment defect count if this image hasn't been checked yet
+            if item_key not in self.quality_checked_items:
+                if defect_result['is_defective']:
+                    self.defect_count += 1
+                    print(f"[GESTURE QC] Defective item detected! Defect count: {self.defect_count}")
+                self.quality_checked_items.add(item_key)
+                print(f"[GESTURE QC] ✅ Image {self.current_production_index + 1} marked as checked. Total checked: {len(self.quality_checked_items)}")
             else:
-                print(f"[DEBUG] Item passed. Defect count unchanged: {self.defect_count}")
-            self.quality_checked_items.add(item_id)
-            print(f"[DEBUG] quality_checked_items: {self.quality_checked_items}")
-            # ... rest of method unchanged ...
+                print(f"[GESTURE QC] Image {self.current_production_index + 1} already checked. Skipping.")
 
             # Show result on frame
             result_text = f"QUALITY RESULT: {'DEFECTIVE' if defect_result['is_defective'] else 'PASSED'}"
@@ -1670,6 +1792,244 @@ class SmartFactoryController:
             forecast['rolling_avg'] = None
         return forecast
 
+    def init_gemini_api(self):
+        """Initialize Gemini API with API key from environment variables"""
+        try:
+            api_key = os.getenv('GEMINI_API_KEY')
+            if api_key:
+                genai.configure(api_key=api_key)
+                self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+                print("✅ Gemini API initialized successfully with gemini-1.5-flash")
+            else:
+                print("⚠️ GEMINI_API_KEY not found in environment variables")
+                self.gemini_model = None
+        except Exception as e:
+            print(f"❌ Error initializing Gemini API: {e}")
+            self.gemini_model = None
+
+    def analyze_graph_with_gemini(self, fig, date_str, batch_sizes, defect_rates):
+        """Analyze the defect rate graph using Gemini AI and provide insights"""
+        try:
+            if not self.gemini_model:
+                return "Gemini API not available. Please set GEMINI_API_KEY environment variable."
+            
+            # Convert matplotlib figure to base64 string
+            img_buffer = io.BytesIO()
+            fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=300)
+            img_buffer.seek(0)
+            img_data = base64.b64encode(img_buffer.getvalue()).decode()
+            
+            # Create prompt for Gemini
+            prompt = f"""
+            Analyze this manufacturing defect rate graph for {date_str} and provide a comprehensive business intelligence report.
+            
+            Data Summary:
+            - Date: {date_str}
+            - Number of batches: {len(batch_sizes)}
+            - Batch sizes range: {min(batch_sizes) if batch_sizes else 0} to {max(batch_sizes) if batch_sizes else 0}
+            - Defect rates range: {min(defect_rates):.2f}% to {max(defect_rates):.2f}% (if data available)
+            - Average defect rate: {sum(defect_rates)/len(defect_rates):.2f}% (if data available)
+            
+            Please provide:
+            1. **Executive Summary**: Key findings and overall performance assessment
+            2. **Trend Analysis**: Identify patterns, trends, and anomalies in the data
+            3. **Quality Assessment**: Evaluate manufacturing quality and identify areas of concern
+            4. **Root Cause Analysis**: Potential causes for defect rate variations
+            5. **Forecasting Insights**: Predict future defect rates and production implications
+            6. **Recommendations**: Actionable steps to improve quality and reduce defects
+            7. **Risk Assessment**: Identify potential risks and their impact on production
+            8. **Performance Metrics**: Key performance indicators and benchmarks
+            
+            Format the response in a professional business report style with clear sections and bullet points.
+            """
+            
+            # Generate image for Gemini
+            image_parts = [
+                {
+                    "mime_type": "image/png",
+                    "data": base64.b64decode(img_data)
+                }
+            ]
+            
+            # Get response from Gemini
+            response = self.gemini_model.generate_content([prompt, image_parts[0]])
+            
+            if response.text:
+                return response.text
+            else:
+                return "Unable to generate analysis. Please try again."
+                
+        except Exception as e:
+            print(f"❌ Error analyzing graph with Gemini: {e}")
+            return f"Error generating AI analysis: {str(e)}"
+
+    def generate_pdf_report(self, ai_analysis, date_str, batch_sizes, defect_rates, fig):
+        """Generate a comprehensive PDF report with AI analysis using reportlab"""
+        try:
+            # Create PDF filename with timestamp
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            pdf_filename = f"defect_analysis_report_{date_str}_{timestamp}.pdf"
+            
+            # Create PDF document
+            doc = SimpleDocTemplate(pdf_filename, pagesize=A4)
+            story = []
+            
+            # Get styles
+            styles = getSampleStyleSheet()
+            
+            # Create custom styles
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=24,
+                spaceAfter=30,
+                alignment=TA_CENTER,
+                textColor=colors.darkblue
+            )
+            
+            heading_style = ParagraphStyle(
+                'CustomHeading',
+                parent=styles['Heading2'],
+                fontSize=16,
+                spaceAfter=12,
+                spaceBefore=20,
+                textColor=colors.navy
+            )
+            
+            body_style = ParagraphStyle(
+                'CustomBody',
+                parent=styles['Normal'],
+                fontSize=11,
+                spaceAfter=6,
+                alignment=TA_JUSTIFY
+            )
+            
+            highlight_style = ParagraphStyle(
+                'CustomHighlight',
+                parent=styles['Heading3'],
+                fontSize=14,
+                spaceAfter=8,
+                textColor=colors.darkgreen
+            )
+            
+            # Title
+            story.append(Paragraph("Manufacturing Defect Analysis Report", title_style))
+            story.append(Paragraph(f"<b>Date:</b> {date_str}", body_style))
+            story.append(Spacer(1, 20))
+            
+            # Executive Summary
+            story.append(Paragraph("Executive Summary", heading_style))
+            
+            # Calculate key metrics
+            avg_defect_rate = sum(defect_rates) / len(defect_rates) if defect_rates else 0
+            max_defect_rate = max(defect_rates) if defect_rates else 0
+            min_defect_rate = min(defect_rates) if defect_rates else 0
+            total_batches = len(batch_sizes)
+            
+            summary_text = f"""
+            This report analyzes manufacturing defect rates for {date_str}. 
+            Key findings include:
+            • Total batches analyzed: {total_batches}
+            • Average defect rate: {avg_defect_rate:.2f}%
+            • Highest defect rate: {max_defect_rate:.2f}%
+            • Lowest defect rate: {min_defect_rate:.2f}%
+            • Defect rate range: {max_defect_rate - min_defect_rate:.2f}%
+            """
+            
+            story.append(Paragraph(summary_text, body_style))
+            story.append(Spacer(1, 20))
+            
+            # Add the graph image
+            story.append(Paragraph("Defect Rate Trend Analysis", heading_style))
+            
+            # Save figure temporarily and add to PDF
+            img_buffer = io.BytesIO()
+            fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
+            img_buffer.seek(0)
+            
+            # Create image object
+            img = Image(img_buffer, width=6*inch, height=4*inch)
+            story.append(img)
+            story.append(Spacer(1, 20))
+            
+            # AI Analysis Section
+            story.append(Paragraph("AI-Powered Analysis & Insights", heading_style))
+            
+            # Process AI analysis text to remove markdown and format properly
+            ai_paragraphs = ai_analysis.split('\n\n')
+            for para in ai_paragraphs:
+                if para.strip():
+                    # Remove markdown formatting
+                    clean_para = para.replace('**', '')  # Remove bold markers
+                    clean_para = clean_para.replace('*', '')   # Remove italic markers
+                    
+                    # Handle different formatting
+                    if para.startswith('**') and para.endswith('**'):
+                        # Bold headers - remove ** and make bold
+                        clean_text = para.replace('**', '')
+                        story.append(Paragraph(f"<b>{clean_text}</b>", highlight_style))
+                    elif para.startswith('•') or para.startswith('-'):
+                        # Bullet points
+                        story.append(Paragraph(clean_para, body_style))
+                    else:
+                        # Regular paragraphs
+                        story.append(Paragraph(clean_para, body_style))
+            
+            story.append(Spacer(1, 20))
+            
+            # Data Table Section
+            story.append(Paragraph("Detailed Data", heading_style))
+            
+            if batch_sizes and defect_rates:
+                # Create data table
+                table_data = [['Batch #', 'Batch Size', 'Defect Rate (%)']]
+                for i, (batch_size, defect_rate) in enumerate(zip(batch_sizes, defect_rates)):
+                    table_data.append([str(i+1), str(batch_size), f"{defect_rate:.2f}"])
+                
+                # Create table
+                table = Table(table_data)
+                
+                # Style the table
+                table_style = TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 10),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightblue]),
+                ])
+                table.setStyle(table_style)
+                
+                story.append(table)
+            
+            # Footer
+            story.append(Spacer(1, 30))
+            footer_text = f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} using Smart Factory AI Analysis System"
+            footer_style = ParagraphStyle(
+                'Footer',
+                parent=styles['Normal'],
+                fontSize=9,
+                alignment=TA_CENTER,
+                textColor=colors.grey
+            )
+            story.append(Paragraph(footer_text, footer_style))
+            
+            # Build PDF
+            doc.build(story)
+            
+            print(f"✅ PDF report generated: {pdf_filename}")
+            return pdf_filename
+            
+        except Exception as e:
+            print(f"❌ Error generating PDF report: {e}")
+            traceback.print_exc()
+            return None
+
 def main():
     st.set_page_config(
         page_title="Smart Factory Control",
@@ -1768,11 +2128,18 @@ def main():
                                                 continue
                                     forecast = controller.forecast_defect_rate(batch_sizes, defect_rates)
                                     st.info(f"**Forecasted Next Defect Rate:**\n- Linear: {forecast['linear']:.2f}%\n- Rolling Avg: {forecast['rolling_avg']:.2f}%")
+                                    # Store in session state for AI summary
+                                    st.session_state.fig = fig
+                                    st.session_state.selected_date = selected_date
+                                    st.session_state.batch_sizes = batch_sizes
+                                    st.session_state.defect_rates = defect_rates
                                 else:
                                     st.error("❌ Failed to generate graph. Check console for details.")
                             except Exception as e:
                                 st.error(f"❌ Error generating graph: {str(e)}")
                                 print(f"❌ Streamlit error: {e}")
+                    
+                   
                 
                 with analysis_col2:
                     if st.button("Export Report"):
@@ -1854,6 +2221,63 @@ def main():
                     controller.reset_production()
                     st.success("Emergency mode reset successfully")
         
+        # In the main() function, inside 'with col2:' and after the Analysis section, add:
+
+        st.header("🤖 AI-Powered Analysis")
+        ai_col1, ai_col2 = st.columns([1, 1])
+        generate_disabled = not all(k in st.session_state and st.session_state[k] is not None for k in ['fig', 'selected_date', 'batch_sizes', 'defect_rates'])
+        with ai_col1:
+            if st.button("Generate AI Summary", disabled=generate_disabled):
+                with st.spinner("🤖 Analyzing data with AI..."):
+                    try:
+                        fig = st.session_state.fig
+                        selected_date = st.session_state.selected_date
+                        batch_sizes = st.session_state.batch_sizes
+                        defect_rates = st.session_state.defect_rates
+                        if not batch_sizes or not defect_rates:
+                            st.error("❌ No valid data found for analysis.")
+                            return
+                        # Generate AI analysis (not shown)
+                        ai_analysis = controller.analyze_graph_with_gemini(fig, selected_date, batch_sizes, defect_rates)
+                        # Store analysis in session state for PDF generation
+                        st.session_state.ai_analysis = ai_analysis
+                        st.session_state.analysis_date = selected_date
+                        st.session_state.analysis_batch_sizes = batch_sizes
+                        st.session_state.analysis_defect_rates = defect_rates
+                        st.session_state.analysis_fig = fig
+                        st.session_state.ai_ready = True
+                        st.info("AI summary generated! Click 'Export AI Report as PDF' to download.")
+                    except Exception as e:
+                        st.error(f"❌ Error generating AI analysis: {str(e)}")
+                        print(f"❌ AI Analysis error: {e}")
+        with ai_col2:
+            export_disabled = not st.session_state.get('ai_ready', False)
+            if st.button("Export AI Report as PDF", disabled=export_disabled):
+                with st.spinner("📄 Generating PDF report..."):
+                    try:
+                        pdf_filename = controller.generate_pdf_report(
+                            st.session_state.ai_analysis,
+                            st.session_state.analysis_date,
+                            st.session_state.analysis_batch_sizes,
+                            st.session_state.analysis_defect_rates,
+                            st.session_state.analysis_fig
+                        )
+                        if pdf_filename and os.path.exists(pdf_filename):
+                            with open(pdf_filename, "rb") as f:
+                                pdf_data = f.read()
+                            st.download_button(
+                                label="📄 Download AI Report (PDF)",
+                                data=pdf_data,
+                                file_name=pdf_filename,
+                                mime="application/pdf"
+                            )
+                            st.success("✅ PDF report ready for download!")
+                        else:
+                            st.error("❌ Failed to generate PDF report.")
+                    except Exception as e:
+                        st.error(f"❌ Error generating PDF: {str(e)}")
+                        print(f"❌ PDF generation error: {e}")
+
         while True:
             ret, frame = st.session_state.camera.read()
             if not ret:
@@ -1911,7 +2335,5 @@ def main():
             st.session_state.camera = None
 
 
-
-
 if __name__ == "__main__":
-    main() 
+    main()
