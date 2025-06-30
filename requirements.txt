@@ -14,5 +14,5 @@ pandas
 pyotp==2.9.0
 qrcode==7.4.2
 python-dotenv==1.0.0
-google-generativeai>=0.5.0
+google-generativeai>=0.6.0
 reportlab
