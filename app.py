@@ -256,7 +256,7 @@ def to_py(val):
         return val.item()
     return val
 
-# Frontend API endpoints
+# Frontend API endpoints to get metrics
 @app.route('/api/metrics', methods=['GET'])
 def get_metrics():
     """Get system metrics for frontend"""
