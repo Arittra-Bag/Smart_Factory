@@ -621,6 +621,13 @@ def emergency_stop():
     controller.production_mode = False
     controller.machine_status = "EMERGENCY"
     controller.emergency_mode = True
+    # Log production details
+    batch_size = getattr(controller, 'batch_size', 0)
+    defect_count = getattr(controller, 'defect_count', 0)
+    production_count = getattr(controller, 'production_count', 1)
+    defect_rate = (defect_count / max(production_count, 1)) * 100
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    controller.log_safety_check(batch_size, defect_rate, timestamp)
     return jsonify({'status': 'success', 'message': 'Emergency stop triggered', 'metrics': get_system_metrics()})
 
 @app.route('/api/production/quality_check', methods=['POST'])
