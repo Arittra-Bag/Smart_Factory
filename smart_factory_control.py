@@ -1894,18 +1894,17 @@ class SmartFactoryController:
             - Defect rates range: {min(defect_rates):.2f}% to {max(defect_rates):.2f}% (if data available)
             - Average defect rate: {sum(defect_rates)/len(defect_rates):.2f}% (if data available)
             
-            Please provide:
-            1. Executive Summary: Write a concise, single-paragraph summary of the day's production quality and key findings. Do not use bullet points or numbered lists.
-            2. Trend Analysis: Identify patterns, trends, and anomalies in the data
-            3. Quality Assessment: Evaluate manufacturing quality and identify areas of concern
-            4. Root Cause Analysis: Potential causes for defect rate variations
+           Please provide:
+            1. Executive Summary: Write a concise, single-paragraph summary of the day's production quality and key findings."Use bullet points and clear sections for better readability"
+            3. Quality Assessment: Evaluate manufacturing quality and identify areas of concern. Use bullet points and clear section. make it max 2-3 points
+            4. Root Cause Analysis: Potential causes for defect rate variations. Use bullet points and clear section. make it max 2-3 points
             5. Forecasting Insights: Predict future defect rates and production implications
-            6. Recommendations: Actionable steps to improve quality and reduce defects
-            7. Risk Assessment: Identify potential risks and their impact on production
+            6. Recommendations: Actionable steps to improve quality and reduce defects.Use numbered list and clear section. make it max 2-3 points
+            7. Risk Assessment: Identify potential risks and their impact on production. Use bullet points and clear section. make it max 2-3 points
             8. Performance Metrics: Key performance indicators and benchmarks
             
             Format the response in a professional business report style. All these points must be in a different paragraph with a heading. And the heading must be in bold. The content under the heading must be in a paragraph. Use easy to understand language.
-            """
+            """
             
             # Generate image for Gemini
             image_parts = [
