@@ -52,21 +52,6 @@ export default function Header({ currentPage, onPageChange, systemStatus }: Head
             </button>
           </nav>
 
-          {/* Status and User - Desktop */}
-          <div className="hidden sm:flex items-center space-x-2 lg:space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                systemStatus === 'Online' ? 'bg-green-400' : 'bg-red-400'
-              }`} />
-              <span className="text-xs lg:text-sm">{systemStatus}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <User className="h-4 w-4 lg:h-5 lg:w-5" />
-              <span className="text-xs lg:text-sm hidden lg:inline">Admin</span>
-              <Power className="h-3 w-3 lg:h-4 lg:w-4 text-slate-400 hover:text-white cursor-pointer" />
-            </div>
-          </div>
-
           {/* Mobile menu button */}
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -110,23 +95,6 @@ export default function Header({ currentPage, onPageChange, systemStatus }: Head
               >
                 Production Control
               </button>
-            </div>
-            
-            {/* Mobile Status */}
-            <div className="mt-4 pt-4 border-t border-slate-700">
-              <div className="flex items-center justify-between px-4">
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    systemStatus === 'Online' ? 'bg-green-400' : 'bg-red-400'
-                  }`} />
-                  <span className="text-sm">{systemStatus}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <User className="h-4 w-4" />
-                  <span className="text-sm">Admin</span>
-                  <Power className="h-4 w-4 text-slate-400 hover:text-white cursor-pointer" />
-                </div>
-              </div>
             </div>
           </div>
         )}

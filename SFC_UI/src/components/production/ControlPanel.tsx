@@ -35,14 +35,6 @@ export default function ControlPanel({
       color: 'bg-green-600 hover:bg-green-700'
     },
     {
-      label: 'Pause Production',
-      shortLabel: 'Pause',
-      icon: Pause,
-      onClick: onPauseProduction,
-      disabled: !productionState.isRunning || isLoading,
-      color: 'bg-yellow-600 hover:bg-yellow-700'
-    },
-    {
       label: 'Emergency Stop',
       shortLabel: 'Emergency',
       icon: Square,
@@ -117,57 +109,6 @@ export default function ControlPanel({
             </span>
           </button>
         ))}
-      </div>
-
-      {/* Mode Selection */}
-      <div className="border-t pt-4 sm:pt-6">
-        <h4 className="text-sm sm:text-base font-semibold text-gray-800 mb-3 sm:mb-4">Operating Mode</h4>
-        <div className="space-y-3 sm:space-y-4">
-          <label className="flex items-start space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-            <input
-              type="radio"
-              name="mode"
-              value="production"
-              checked={productionState.mode === 'production'}
-              onChange={() => onModeChange('production')}
-              className="form-radio h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm sm:text-base font-medium text-gray-900">Production Mode</div>
-              <div className="text-xs sm:text-sm text-gray-500 mt-1">Normal production with dataset images</div>
-            </div>
-          </label>
-          
-          <label className="flex items-start space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-            <input
-              type="radio"
-              name="mode"
-              value="simulation"
-              checked={productionState.mode === 'simulation'}
-              onChange={() => onModeChange('simulation')}
-              className="form-radio h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm sm:text-base font-medium text-gray-900">Simulation Mode</div>
-              <div className="text-xs sm:text-sm text-gray-500 mt-1">Automated production simulation</div>
-            </div>
-          </label>
-          
-          <label className="flex items-start space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-            <input
-              type="radio"
-              name="mode"
-              value="test"
-              checked={productionState.mode === 'test'}
-              onChange={() => onModeChange('test')}
-              className="form-radio h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm sm:text-base font-medium text-gray-900">Test Mode</div>
-              <div className="text-xs sm:text-sm text-gray-500 mt-1">Dataset testing with accuracy tracking</div>
-            </div>
-          </label>
-        </div>
       </div>
 
       {/* Test Results */}

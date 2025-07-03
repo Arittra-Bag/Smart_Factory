@@ -95,9 +95,6 @@ export default function ProductionPage() {
       case 'palm':
         handleQualityCheck();
         break;
-      case 'index':
-        // Optionally handle plot defect rate
-        break;
       default:
         break;
     }

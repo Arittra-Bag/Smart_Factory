@@ -272,7 +272,6 @@ export default function RealTimeVideoProcessor({
           <div>✌️ Peace Sign: Start Production</div>
           <div>✋ Palm: Quality Check</div>
           <div>✊ Fist: Emergency Stop</div>
-          <div>☝️ Index: Plot Defect Rate</div>
         </div>
       </div>
     </div>
