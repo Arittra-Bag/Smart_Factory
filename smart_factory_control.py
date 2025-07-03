@@ -1894,17 +1894,18 @@ class SmartFactoryController:
             - Defect rates range: {min(defect_rates):.2f}% to {max(defect_rates):.2f}% (if data available)
             - Average defect rate: {sum(defect_rates)/len(defect_rates):.2f}% (if data available)
             
-           Please provide:
-            1. Executive Summary: Write a concise, single-paragraph summary of the day's production quality and key findings."Use bullet points and clear sections for better readability"
-            3. Quality Assessment: Evaluate manufacturing quality and identify areas of concern. Use bullet points and clear section. make it max 2-3 points
-            4. Root Cause Analysis: Potential causes for defect rate variations. Use bullet points and clear section. make it max 2-3 points
-            5. Forecasting Insights: Predict future defect rates and production implications
-            6. Recommendations: Actionable steps to improve quality and reduce defects.Use numbered list and clear section. make it max 2-3 points
-            7. Risk Assessment: Identify potential risks and their impact on production. Use bullet points and clear section. make it max 2-3 points
-            8. Performance Metrics: Key performance indicators and benchmarks
+            Please provide:
+            1. Executive Summary: Give exactly 3-4 concise bullet points, each a single, clear, knowledge-rich sentence summarizing the day's production quality and key findings.
+            2. Trend Analysis: Give 3-4 bullet points, each a single, clear sentence about trends in defect rates.
+            3. Quality Assessment: Give 3-4 bullet points, each a single, clear sentence evaluating manufacturing quality and areas of concern.
+            4. Root Cause Analysis: Give 3-4 bullet points, each a single, clear sentence listing potential causes for defect rate variations.
+            5. Forecasting Insights: Give 3-4 bullet points, each a single, clear sentence predicting future defect rates and production implications.
+            6. Recommendations: Give 3-4 bullet points, each a single, clear, actionable step to improve quality and reduce defects.
+            7. Risk Assessment: Give 3-4 bullet points, each a single, clear sentence identifying potential risks and their impact on production.
+            8. Performance Metrics: Give 3-4 bullet points, each a single, clear sentence listing key performance indicators and benchmarks.
             
-            Format the response in a professional business report style. All these points must be in a different paragraph with a heading. And the heading must be in bold. The content under the heading must be in a paragraph. Use easy to understand language.
-            """
+            Format the response as a professional business report. Each section must have a bold heading, and the content under each heading should be a list of 3-4 bullet points (not paragraphs). Add a blank line between each section for readability. Use clear, easy-to-understand language and avoid long blocks of text.
+            """
             
             # Generate image for Gemini
             image_parts = [
@@ -2138,64 +2139,70 @@ def parse_gemini_report(report_text):
     """Parse the raw Gemini report text into a structured object for the frontend"""
     import re
     sections = {
-        "executiveSummary": "",
-        "trendAnalysis": "",
-        "qualityAssessment": "",
-        "rootCauseAnalysis": "",
-        "riskAssessment": "",
-        "performanceMetrics": "",
+        "executiveSummary": [],
+        "trendAnalysis": [],
+        "qualityAssessment": [],
+        "rootCauseAnalysis": [],
+        "riskAssessment": [],
+        "performanceMetrics": [],
         "recommendations": [],
         "alerts": []
     }
-    
+
     def clean_markdown(text):
         # Remove markdown bold/italic and extra asterisks
         return re.sub(r'[\*`_]+', '', text).strip()
-    
+
+    def extract_bullets(section_text):
+        # Extract bullet points or numbered list items
+        bullets = re.findall(r"(?:^|\n)[\-•\d\.]+\s*(.+?)(?=\n[\-•\d\.]|$)", section_text)
+        return [clean_markdown(b) for b in bullets if b.strip()]
+
     def extract_section(title, text):
-        # Extract a section as a paragraph (not just bullets)
-        match = re.search(rf"{title}[:\n\-]*([\s\S]*?)(?:\n[A-Z][\w ]+:|$)", text, re.IGNORECASE)
+        # Extract section text between headings
+        match = re.search(rf"{title}[:\n\-]*([\s\S]*?)(?=\n[A-Z][\w ]+:|$)", text, re.IGNORECASE)
         if match:
-            return clean_markdown(match.group(1))
+            return match.group(1).strip()
         return ""
-    
-    # Executive Summary: only up to the first major section heading
-    exec_match = re.search(r"Executive Summary[:\n\-]*([\s\S]*?)(?:\n(?:Trend Analysis|Quality Assessment|Root Cause Analysis|Risk Assessment|Performance Metrics|Recommendations|Alerts)[:\n\-])", report_text, re.IGNORECASE)
-    if exec_match:
-        sections["executiveSummary"] = clean_markdown(exec_match.group(1))
-    else:
-        # fallback to previous method
-        sections["executiveSummary"] = extract_section("Executive Summary", report_text)
-    
-    # Extract all major sections as paragraphs
-    sections["trendAnalysis"] = extract_section("Trend Analysis", report_text)
-    sections["qualityAssessment"] = extract_section("Quality Assessment", report_text)
-    sections["rootCauseAnalysis"] = extract_section("Root Cause Analysis", report_text)
-    sections["riskAssessment"] = extract_section("Risk Assessment", report_text)
-    sections["performanceMetrics"] = extract_section("Performance Metrics", report_text)
-    
-    # Recommendations as bullet points
-    rec_match = re.search(r"Recommendations[:\n\-]*([\s\S]*?)(?:\n[A-Z][\w ]+:|$)", report_text, re.IGNORECASE)
-    if rec_match:
-        recs = re.findall(r"[-•]\s*(.*)", rec_match.group(1))
-        if recs:
-            sections["recommendations"] = [clean_markdown(r) for r in recs if r.strip()]
-        else:
-            # If not bullets, treat as paragraph
-            rec_para = clean_markdown(rec_match.group(1))
-            if rec_para:
-                sections["recommendations"] = [rec_para]
-    
-    # Optionally extract Alerts (if present)
-    alert_match = re.search(r"Alerts[:\n\-]*([\s\S]*?)(?:\n[A-Z][\w ]+:|$)", report_text, re.IGNORECASE)
-    if alert_match:
-        alerts = re.findall(r"[-•]\s*(.*)", alert_match.group(1))
-        sections["alerts"] = [{"type": "info", "message": clean_markdown(a)} for a in alerts if a.strip()]
-    
-    # Fallback if nothing found
+
+    # For each section, extract as bullet points
+    for key, title in [
+        ("executiveSummary", "Executive Summary"),
+        ("trendAnalysis", "Trend Analysis"),
+        ("qualityAssessment", "Quality Assessment"),
+        ("rootCauseAnalysis", "Root Cause Analysis"),
+        ("riskAssessment", "Risk Assessment"),
+        ("performanceMetrics", "Performance Metrics"),
+    ]:
+        section_text = extract_section(title, report_text)
+        bullets = extract_bullets(section_text)
+        if bullets:
+            sections[key] = bullets[:4]  # Limit to 3-4 points
+        elif section_text:
+            # Fallback: split by sentences if no bullets
+            sentences = re.split(r'(?<=[.!?])\s+', section_text)
+            sections[key] = [clean_markdown(s) for s in sentences if s.strip()][:4]
+
+    # Recommendations as bullet points or numbered list
+    rec_section = extract_section("Recommendations", report_text)
+    rec_bullets = extract_bullets(rec_section)
+    if rec_bullets:
+        sections["recommendations"] = rec_bullets[:4]
+    elif rec_section:
+        sentences = re.split(r'(?<=[.!?])\s+', rec_section)
+        sections["recommendations"] = [clean_markdown(s) for s in sentences if s.strip()][:4]
+
+    # Alerts as bullet points
+    alert_section = extract_section("Alerts", report_text)
+    alert_bullets = extract_bullets(alert_section)
+    if alert_bullets:
+        sections["alerts"] = [{"type": "info", "message": b} for b in alert_bullets[:4]]
+
+    # Fallback for executive summary if nothing found
     if not sections["executiveSummary"]:
-        sections["executiveSummary"] = clean_markdown(report_text[:500] + "..." if len(report_text) > 500 else report_text)
-    
+        fallback = clean_markdown(report_text[:500] + "..." if len(report_text) > 500 else report_text)
+        sections["executiveSummary"] = [fallback]
+
     return sections
 
 def get_system_metrics():
