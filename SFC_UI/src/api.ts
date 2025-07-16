@@ -108,6 +108,22 @@ export async function predictDefect(imageFile: File) {
   return res.data;
 }
 
+// Ensemble Detection API
+export async function detectImage(imageFile: File, settings: any, enabledModels: Record<string, boolean>) {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  formData.append('settings', JSON.stringify(settings));
+  formData.append('enabled_models', JSON.stringify(enabledModels));
+  
+  const res = await api.post('/api/detect-image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    timeout: 30000, // 30 seconds for detection processing
+  });
+  return res.data;
+}
+
 // Test mode functions
 export async function startTestMode() {
   const res = await api.post('/api/test/start');

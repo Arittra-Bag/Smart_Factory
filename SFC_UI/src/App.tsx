@@ -3,9 +3,10 @@ import Header from './components/shared/Header';
 import HomePage from './components/HomePage';
 import AdminDashboard from './components/admin/AdminDashboard';
 import ProductionPage from './components/production/ProductionPage';
+import DetectionPage from './components/DetectionPage';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'admin' | 'control'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'admin' | 'control' | 'detection'>('home');
   const [systemStatus] = useState<'Online' | 'Offline'>('Online');
 
   const handleNavigateToAdmin = () => setCurrentPage('admin');
@@ -29,8 +30,10 @@ function App() {
           />
         ) : currentPage === 'admin' ? (
           <AdminDashboard />
-        ) : (
+        ) : currentPage === 'control' ? (
           <ProductionPage />
+        ) : (
+          <DetectionPage />
         )}
       </main>
     </div>

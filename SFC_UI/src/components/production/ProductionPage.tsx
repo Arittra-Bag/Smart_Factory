@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ControlPanel from './ControlPanel';
-import RealTimeVideoProcessor from './RealTimeVideoProcessor';
+import VideoUploadProcessor from './VideoUploadProcessor';
 import { getProductionMetrics, startProduction, pauseProduction, emergencyStop, qualityCheck } from '../../api';
 import { ProductionState, GestureType } from '../../types';
 
@@ -109,7 +109,7 @@ export default function ProductionPage() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div>
-        <RealTimeVideoProcessor
+        <VideoUploadProcessor
           productionState={productionState}
           machineStatus={machineStatus}
           onGestureDetected={handleGestureDetected}

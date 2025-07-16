@@ -44,6 +44,15 @@ export interface ProductionState {
   mode: 'production' | 'simulation' | 'test';
   testAccuracy?: number;
   currentGesture?: GestureType | null;
+
+  // Added fields to match backend
+  machineStatus?: string;
+  totalProduction?: number;
+  productionMode?: boolean;
+  simulationMode?: boolean;
+  testMode?: boolean;
+  emergencyMode?: boolean;
+  emergencyResetProgress?: number;
 }
 
 export type GestureType = 'fist' | 'peace' | 'palm' | 'index' | null;

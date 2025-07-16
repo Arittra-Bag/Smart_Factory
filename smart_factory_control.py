@@ -114,6 +114,38 @@ class SmartFactoryController:
 
         self.production_intervals = []  # List of (start, stop) tuples
         self.current_production_start = None
+        self.production_thread = threading.Thread(target=self.production_loop, daemon=True)
+        self.production_thread.start()
+
+    def production_loop(self):
+        while True:
+            if self.production_mode and not self.emergency_mode:
+                self.production_count += 1
+                self.total_production += 1
+                self.batch_size = self.production_count
+                if self.production_images:
+                    self.current_production_index = (self.current_production_index + 1) % len(self.production_images)
+
+                # Defect detection logic
+                expected_label = self.get_current_production_label()
+                item_key = f"image_{self.current_production_index}"
+                if expected_label == 'defective' and item_key not in self.quality_checked_items:
+                    detection_image = self.get_current_production_image()
+                    if detection_image is not None:
+                        defect_result = self.predict_defect(detection_image)
+                        print(f"[AUTO QC] 🔍 Image {self.current_production_index + 1} - Expected DEFECTIVE - Detected defect rate: {defect_result['defect_rate']:.2f}%, Defective: {defect_result['is_defective']}")
+                        if defect_result['is_defective']:
+                            self.defect_count += 1
+                            print(f"[AUTO QC] ⚠️ Confirmed defect. Total defects: {self.defect_count}")
+                        else:
+                            print(f"[AUTO QC] ✅ Passed auto check")
+                        self.quality_checked_items.add(item_key)
+                        print(f"[AUTO QC] ✅ Image {self.current_production_index + 1} marked as checked. Total checked: {len(self.quality_checked_items)}")
+
+                print(f"[AUTO] Production count: {self.production_count}, Image: {self.current_production_index}")
+                time.sleep(2)
+            else:
+                time.sleep(0.2)
 
     def predict_defect(self, image):
         if image is None or image.size == 0:

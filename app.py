@@ -32,6 +32,8 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 import atexit
+import tempfile
+from PIL import Image as PILImage
 
 # Load environment variables from .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
@@ -57,6 +59,25 @@ CORS(app)
 
 # Initialize the controller (singleton for now)
 controller = SmartFactoryController()
+
+# Initialize ensemble detector
+ensemble_detector = None
+
+def get_ensemble_detector():
+    """Get or create ensemble detector instance"""
+    global ensemble_detector
+    if ensemble_detector is None:
+        try:
+            from live_ensemble_detection import LiveEnsembleDetector
+            ensemble_detector = LiveEnsembleDetector()
+            if not ensemble_detector.scan_and_load_models():
+                print("❌ Failed to load ensemble detection models")
+                return None
+            print("✅ Ensemble detector initialized successfully")
+        except Exception as e:
+            print(f"❌ Error initializing ensemble detector: {e}")
+            return None
+    return ensemble_detector
 
 def get_system_metrics():
     """Get system metrics in the format expected by frontend"""
@@ -182,6 +203,122 @@ def get_safety_records_from_csv():
     except Exception as e:
         print(f"Error reading safety records from CSV: {e}")
     return records
+
+def log_detection_metrics_to_db(total_detections, enabled_models, processing_time, model_stats):
+    """Log detection metrics to the database"""
+    try:
+        connection = mysql.connector.connect(
+            host=os.getenv('DB_HOST', ''),
+            user=os.getenv('DB_USER', ''),
+            password=os.getenv('DB_PASSWORD', ''),
+            database=os.getenv('DB_NAME', '')
+        )
+        cursor = connection.cursor()
+        
+        # Insert into detection_metrics_log
+        insert_metrics_sql = """
+            INSERT INTO detection_metrics_log (total_detections, enabled_models, processing_time)
+            VALUES (%s, %s, %s)
+        """
+        cursor.execute(insert_metrics_sql, (total_detections, enabled_models, processing_time))
+        
+        # Get the ID of the inserted record
+        detection_metrics_id = cursor.lastrowid
+        
+        # Insert model performance data
+        insert_model_sql = """
+            INSERT INTO model_performance_log (detection_metrics_id, model_name, detections, avg_confidence)
+            VALUES (%s, %s, %s, %s)
+        """
+        
+        for model_name, stats in model_stats.items():
+            cursor.execute(insert_model_sql, (
+                detection_metrics_id,
+                model_name,
+                stats['count'],
+                stats['avg_confidence']
+            ))
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        print(f"✅ Logged detection metrics to database: {total_detections} detections, {enabled_models} models, {processing_time:.2f}s")
+        print(f"📊 Database logging successful! Check your MySQL tables for new entries.")
+        print(f"   - detection_metrics_log: Added record with {total_detections} detections")
+        print(f"   - model_performance_log: Added {len(model_stats)} model performance records")
+        return True
+        
+    except Error as e:
+        print(f"❌ Database error logging detection metrics: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Error logging detection metrics: {e}")
+        return False
+
+def get_detection_metrics_history():
+    """Get detection metrics history from database"""
+    try:
+        connection = mysql.connector.connect(
+            host=os.getenv('DB_HOST', ''),
+            user=os.getenv('DB_USER', ''),
+            password=os.getenv('DB_PASSWORD', ''),
+            database=os.getenv('DB_NAME', '')
+        )
+        cursor = connection.cursor()
+        
+        # Get recent detection metrics with model performance
+        sql = """
+            SELECT 
+                dml.id,
+                dml.timestamp,
+                dml.total_detections,
+                dml.enabled_models,
+                dml.processing_time,
+                mpl.model_name,
+                mpl.detections as model_detections,
+                mpl.avg_confidence
+            FROM detection_metrics_log dml
+            LEFT JOIN model_performance_log mpl ON dml.id = mpl.detection_metrics_id
+            ORDER BY dml.timestamp DESC
+            LIMIT 100
+        """
+        cursor.execute(sql)
+        results = cursor.fetchall()
+        
+        # Group by detection session
+        detection_sessions = {}
+        for row in results:
+            (detection_id, timestamp, total_detections, enabled_models, 
+             processing_time, model_name, model_detections, avg_confidence) = row
+            
+            if detection_id not in detection_sessions:
+                detection_sessions[detection_id] = {
+                    'id': detection_id,
+                    'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp),
+                    'total_detections': total_detections,
+                    'enabled_models': enabled_models,
+                    'processing_time': processing_time,
+                    'models': {}
+                }
+            
+            if model_name:
+                detection_sessions[detection_id]['models'][model_name] = {
+                    'detections': model_detections,
+                    'avg_confidence': avg_confidence
+                }
+        
+        cursor.close()
+        connection.close()
+        
+        return list(detection_sessions.values())
+        
+    except Error as e:
+        print(f"❌ Database error getting detection metrics history: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Error getting detection metrics history: {e}")
+        return []
 
 def get_safety_records_formatted():
     """Get safety records in the format expected by frontend - now from database"""
@@ -319,28 +456,12 @@ def process_frame():
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if frame is None:
             return jsonify({'error': 'Invalid frame data'}), 400
-        processed_frame = controller.process_frame(frame)
+        controller.process_frame(frame)
         gesture = controller.current_gesture
-        production_image = controller.get_current_production_image()
-        production_image_base64 = None
-        if production_image is not None:
-            _, buffer = cv2.imencode('.jpg', production_image)
-            production_image_base64 = base64.b64encode(buffer).decode('utf-8')
-        defect_result = None
-        if production_image is not None:
-            defect_result = controller.predict_defect(production_image)
-            if defect_result:
-                defect_result = {k: to_py(v) for k, v in defect_result.items()}
-        _, processed_buffer = cv2.imencode('.jpg', processed_frame)
-        processed_frame_base64 = base64.b64encode(processed_buffer).decode('utf-8')
         metrics = get_smart_factory_metrics()
-        # Ensure all metrics are serializable
-        metrics = {k: to_py(v) for k, v in metrics.items()}
+        # Only return gesture and metrics for instant recognition
         response = {
             'gesture': gesture,
-            'production_image': production_image_base64,
-            'defect_result': defect_result,
-            'processed_frame': processed_frame_base64,
             'metrics': metrics
         }
         return jsonify(response)
@@ -628,6 +749,7 @@ def emergency_stop():
     defect_rate = (defect_count / max(production_count, 1)) * 100
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     controller.log_safety_check(batch_size, defect_rate, timestamp)
+    controller.reset_production()  # Reset all metrics after logging
     return jsonify({'status': 'success', 'message': 'Emergency stop triggered', 'metrics': get_system_metrics()})
 
 @app.route('/api/production/quality_check', methods=['POST'])
@@ -956,5 +1078,106 @@ def recognize_gesture():
     except Exception as e:
         return {'error': str(e)}, 500
 
+@app.route('/api/detect-image', methods=['POST'])
+def detect_image():
+    """Process an image for ensemble detection using multiple YOLO models."""
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image provided'}), 400
+    
+    file = request.files['image']
+    settings_str = request.form.get('settings', '{}')
+    enabled_models_str = request.form.get('enabled_models', '{}')
+    
+    try:
+        # Parse settings and enabled models
+        settings = json.loads(settings_str)
+        enabled_models = json.loads(enabled_models_str)
+        
+        # Read the image file
+        image_bytes = file.read()
+        image_np = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            return jsonify({'error': 'Invalid image file'}), 400
+        
+        # Get the ensemble detector
+        detector = get_ensemble_detector()
+        if detector is None:
+            return jsonify({'error': 'Ensemble detector not initialized'}), 500
+        
+        # Update enabled models in detector
+        detector.enabled_models = enabled_models
+        
+        # Get detection parameters
+        conf_threshold = settings.get('confidence', 0.25)
+        iou_threshold = settings.get('iou', 0.45)
+        
+        # Start timing
+        start_time = time.time()
+        
+        # Run ensemble detection
+        detections = detector.run_ensemble_detection(image, conf_threshold, iou_threshold)
+        
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
+        # Get image dimensions
+        height, width = image.shape[:2]
+        
+        # Calculate model statistics
+        model_stats = {}
+        for model_name in detector.models.keys():
+            model_detections = [d for d in detections if d['model'] == model_name]
+            if model_detections:
+                confidences = [d['confidence'] for d in model_detections]
+                model_stats[model_name] = {
+                    'count': len(model_detections),
+                    'avg_confidence': sum(confidences) / len(confidences),
+                    'min_confidence': min(confidences),
+                    'max_confidence': max(confidences)
+                }
+            else:
+                model_stats[model_name] = {
+                    'count': 0,
+                    'avg_confidence': 0,
+                    'min_confidence': 0,
+                    'max_confidence': 0
+                }
+        
+        # Count enabled models
+        enabled_count = sum(1 for enabled in enabled_models.values() if enabled)
+        
+        # Log detection metrics to database
+        log_detection_metrics_to_db(len(detections), enabled_count, processing_time, model_stats)
+        
+        # Format the result for the frontend
+        result = {
+            'detections': detections,
+            'metrics': {
+                'total_detections': len(detections),
+                'enabled_models': enabled_count,
+                'total_models': len(detector.models),
+                'model_stats': model_stats,
+                'processing_time': processing_time,
+                'image_size': {
+                    'width': width,
+                    'height': height
+                }
+            }
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Error in detect-image endpoint: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/detection-history', methods=['GET'])
+def get_detection_history():
+    """Get detection metrics history for frontend"""
+    return jsonify(get_detection_metrics_history())
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False, host='127.0.0.1', port=5000)
