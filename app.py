@@ -83,15 +83,15 @@ def get_system_metrics():
     """Get system metrics in the format expected by frontend"""
     return {
         'totalProduction': getattr(controller, 'total_production', getattr(controller, 'production_count', 0)),
-        'currentQualityScore': getattr(controller, 'quality_score', 0),
-        'activeDefectRate': (getattr(controller, 'defect_count', 0) / getattr(controller, 'batch_size', 1) * 100) if getattr(controller, 'batch_size', 0) > 0 else 0,
+        'currentQualityScore': round(getattr(controller, 'quality_score', 0), 2),
+        'activeDefectRate': round((getattr(controller, 'defect_count', 0) / getattr(controller, 'batch_size', 1) * 100) if getattr(controller, 'batch_size', 0) > 0 else 0, 2),
         'machineStatus': getattr(controller, 'machine_status', ''),
         'emergencyEvents': len(getattr(controller, 'emergency_logs', [])) if hasattr(controller, 'emergency_logs') else 0,
         'systemUptime': 142.5,  # Mock uptime for now
         'defectCount': getattr(controller, 'defect_count', 0),
         'batchSize': getattr(controller, 'batch_size', 0),
         'currentGesture': getattr(controller, 'current_gesture', None),
-        'fps': getattr(controller, 'fps', 0)
+        'fps': round(getattr(controller, 'fps', 0), 2)
     }
 
 def get_smart_factory_metrics():
@@ -100,11 +100,11 @@ def get_smart_factory_metrics():
         'production_count': getattr(controller, 'production_count', 0),
         'batch_size': getattr(controller, 'batch_size', 0),
         'defect_count': getattr(controller, 'defect_count', 0),
-        'quality_score': getattr(controller, 'quality_score', 100.0),
-        'fps': getattr(controller, 'fps', 0),
+        'quality_score': round(getattr(controller, 'quality_score', 100.0), 2),
+        'fps': round(getattr(controller, 'fps', 0), 2),
         'current_gesture': getattr(controller, 'current_gesture', None),
         'machine_status': getattr(controller, 'machine_status', 'STANDBY'),
-        'emergency_reset_progress': getattr(controller, 'emergency_reset_progress', 0),
+        'emergency_reset_progress': round(getattr(controller, 'emergency_reset_progress', 0), 2),
         'production_mode': getattr(controller, 'production_mode', False),
         'test_mode': getattr(controller, 'test_mode', False),
         'simulation_mode': getattr(controller, 'simulation_mode', False),
@@ -204,8 +204,8 @@ def get_safety_records_from_csv():
         print(f"Error reading safety records from CSV: {e}")
     return records
 
-def log_detection_metrics_to_db(total_detections, enabled_models, processing_time, model_stats):
-    """Log detection metrics to the database"""
+def log_detection_metrics_to_db(total_detections):
+    """Log detection metrics to the database - simplified version"""
     try:
         connection = mysql.connector.connect(
             host=os.getenv('DB_HOST', ''),
@@ -215,38 +215,18 @@ def log_detection_metrics_to_db(total_detections, enabled_models, processing_tim
         )
         cursor = connection.cursor()
         
-        # Insert into detection_metrics_log
+        # Insert into detection_metrics_log - only total_detections and timestamp
         insert_metrics_sql = """
-            INSERT INTO detection_metrics_log (total_detections, enabled_models, processing_time)
-            VALUES (%s, %s, %s)
+            INSERT INTO detection_metrics_log (total_detections)
+            VALUES (%s)
         """
-        cursor.execute(insert_metrics_sql, (total_detections, enabled_models, processing_time))
-        
-        # Get the ID of the inserted record
-        detection_metrics_id = cursor.lastrowid
-        
-        # Insert model performance data
-        insert_model_sql = """
-            INSERT INTO model_performance_log (detection_metrics_id, model_name, detections, avg_confidence)
-            VALUES (%s, %s, %s, %s)
-        """
-        
-        for model_name, stats in model_stats.items():
-            cursor.execute(insert_model_sql, (
-                detection_metrics_id,
-                model_name,
-                stats['count'],
-                stats['avg_confidence']
-            ))
+        cursor.execute(insert_metrics_sql, (total_detections,))
         
         connection.commit()
         cursor.close()
         connection.close()
         
-        print(f"✅ Logged detection metrics to database: {total_detections} detections, {enabled_models} models, {processing_time:.2f}s")
-        print(f"📊 Database logging successful! Check your MySQL tables for new entries.")
-        print(f"   - detection_metrics_log: Added record with {total_detections} detections")
-        print(f"   - model_performance_log: Added {len(model_stats)} model performance records")
+        print(f"✅ Logged detection metrics to database: {total_detections} detections")
         return True
         
     except Error as e:
@@ -257,7 +237,7 @@ def log_detection_metrics_to_db(total_detections, enabled_models, processing_tim
         return False
 
 def get_detection_metrics_history():
-    """Get detection metrics history from database"""
+    """Get detection metrics history from database - simplified version"""
     try:
         connection = mysql.connector.connect(
             host=os.getenv('DB_HOST', ''),
@@ -267,51 +247,34 @@ def get_detection_metrics_history():
         )
         cursor = connection.cursor()
         
-        # Get recent detection metrics with model performance
+        # Get recent detection metrics - only total_detections and timestamp
         sql = """
             SELECT 
-                dml.id,
-                dml.timestamp,
-                dml.total_detections,
-                dml.enabled_models,
-                dml.processing_time,
-                mpl.model_name,
-                mpl.detections as model_detections,
-                mpl.avg_confidence
-            FROM detection_metrics_log dml
-            LEFT JOIN model_performance_log mpl ON dml.id = mpl.detection_metrics_id
-            ORDER BY dml.timestamp DESC
+                id,
+                timestamp,
+                total_detections
+            FROM detection_metrics_log
+            ORDER BY timestamp DESC
             LIMIT 100
         """
         cursor.execute(sql)
         results = cursor.fetchall()
         
-        # Group by detection session
-        detection_sessions = {}
+        # Format results for frontend
+        detection_history = []
         for row in results:
-            (detection_id, timestamp, total_detections, enabled_models, 
-             processing_time, model_name, model_detections, avg_confidence) = row
+            (detection_id, timestamp, total_detections) = row
             
-            if detection_id not in detection_sessions:
-                detection_sessions[detection_id] = {
-                    'id': detection_id,
-                    'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp),
-                    'total_detections': total_detections,
-                    'enabled_models': enabled_models,
-                    'processing_time': processing_time,
-                    'models': {}
-                }
-            
-            if model_name:
-                detection_sessions[detection_id]['models'][model_name] = {
-                    'detections': model_detections,
-                    'avg_confidence': avg_confidence
-                }
+            detection_history.append({
+                'id': detection_id,
+                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp),
+                'total_detections': total_detections
+            })
         
         cursor.close()
         connection.close()
         
-        return list(detection_sessions.values())
+        return detection_history
         
     except Error as e:
         print(f"❌ Database error getting detection metrics history: {e}")
@@ -1148,8 +1111,8 @@ def detect_image():
         # Count enabled models
         enabled_count = sum(1 for enabled in enabled_models.values() if enabled)
         
-        # Log detection metrics to database
-        log_detection_metrics_to_db(len(detections), enabled_count, processing_time, model_stats)
+        # Log detection metrics to database - simplified version
+        log_detection_metrics_to_db(len(detections))
         
         # Format the result for the frontend
         result = {
@@ -1177,7 +1140,241 @@ def detect_image():
 @app.route('/api/detection-history', methods=['GET'])
 def get_detection_history():
     """Get detection metrics history for frontend"""
-    return jsonify(get_detection_metrics_history())
+    print("🔍 Detection history API endpoint called")
+    history = get_detection_metrics_history()
+    print(f"📊 Returning {len(history)} detection history records")
+    return jsonify(history)
+
+# ============================================================================
+# AI Co-Pilot and Simulation Control Endpoints
+# ============================================================================
+
+@app.route('/api/simulation/state', methods=['POST'])
+def set_simulation_state():
+    """Set the state of the factory simulator"""
+    try:
+        data = request.get_json()
+        if not data or 'state' not in data:
+            return jsonify({'error': 'Missing state parameter'}), 400
+        
+        state = data['state']
+        valid_states = ['Normal', 'Overheating', 'Belt_Slipping']
+        
+        if state not in valid_states:
+            return jsonify({'error': f'Invalid state. Must be one of: {valid_states}'}), 400
+        
+        # Write the new state to control file
+        with open('simulator_control.txt', 'w') as f:
+            f.write(state)
+        
+        print(f"🎛️ Simulation state changed to: {state}")
+        return jsonify({'message': f'Simulation state set to {state}', 'state': state})
+        
+    except Exception as e:
+        print(f"❌ Error setting simulation state: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/copilot/chat', methods=['POST'])
+def copilot_chat():
+    """AI Co-Pilot chat endpoint using Google Gemini"""
+    try:
+        data = request.get_json()
+        if not data or 'query' not in data:
+            return jsonify({'error': 'Missing query parameter'}), 400
+        
+        user_query = data['query']
+        
+        # Read the last 60 lines from live_data.log (representing the most recent minute)
+        context_data = ""
+        try:
+            with open('live_data.log', 'r') as f:
+                lines = f.readlines()
+                # Get the last 60 lines, or all lines if less than 60
+                recent_lines = lines[-60:] if len(lines) >= 60 else lines
+                context_data = ''.join(recent_lines)
+        except FileNotFoundError:
+            context_data = "No factory data available yet."
+        except Exception as e:
+            print(f"⚠️ Warning: Could not read live_data.log: {e}")
+            context_data = "Error reading factory data."
+        
+        # Set up Google Gemini API
+        try:
+            api_key = os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                return jsonify({'error': 'GEMINI_API_KEY not configured'}), 500
+            
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Construct detailed prompt
+            prompt = f"""You are a Factory Production Analyst AI. Analyze the following factory data and answer the user's question in a conversational, chat-like manner.
+
+Factory Data (Last 60 seconds):
+{context_data}
+
+User Question: {user_query}
+
+Instructions:
+1. Base your answer strictly on the provided factory data
+2. Respond in a natural, conversational tone - like you're chatting with a colleague
+3. If the data shows anomalies or concerning trends, point them out clearly but conversationally
+4. Provide actionable insights for factory operators
+5. Use clear, professional language but avoid markdown formatting (no asterisks, bold, etc.)
+6. If you don't have enough data to answer, say so
+7. Keep responses concise and easy to read in a chat interface
+
+Please provide a conversational analysis:"""
+            
+            # Send prompt to Gemini
+            response = model.generate_content(prompt)
+            
+            # Clean up any markdown formatting for chat display
+            cleaned_response = response.text.replace('***', '').replace('**', '').replace('*', '')
+            
+            return jsonify({'response': cleaned_response})
+            
+        except Exception as e:
+            print(f"❌ Error with Gemini API: {e}")
+            return jsonify({'error': f'AI service error: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error in copilot chat: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/simulation/live_data', methods=['GET'])
+def get_live_simulation_data():
+    """Get the most recent factory data from live_data.log"""
+    try:
+        with open('live_data.log', 'r') as f:
+            lines = f.readlines()
+            if not lines:
+                return jsonify({'error': 'No factory data available'}), 404
+            
+            # Get the very last line
+            last_line = lines[-1].strip()
+            
+            # Parse the JSON data
+            data = json.loads(last_line)
+            
+            return jsonify(data)
+            
+    except FileNotFoundError:
+        return jsonify({'error': 'Factory data file not found'}), 404
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'Invalid JSON in data file: {str(e)}'}), 500
+    except Exception as e:
+        print(f"❌ Error reading live data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prediction/run_scenario', methods=['POST'])
+def run_predictive_scenario():
+    """Run predictive simulation based on scenario file"""
+    try:
+        data = request.get_json()
+        if not data or 'scenario_file' not in data:
+            return jsonify({'error': 'Missing scenario_file parameter'}), 400
+        
+        scenario_file = data['scenario_file']
+        
+        # Security check: ensure filename is safe
+        if '..' in scenario_file or '/' in scenario_file or '\\' in scenario_file:
+            return jsonify({'error': 'Invalid filename detected'}), 400
+        
+        # Construct full path to scenario file
+        scenarios_dir = os.path.join(os.path.dirname(__file__), 'scenarios')
+        scenario_path = os.path.join(scenarios_dir, scenario_file)
+        
+        # Verify file exists and is within scenarios directory
+        if not os.path.exists(scenario_path) or not os.path.isfile(scenario_path):
+            return jsonify({'error': f'Scenario file not found: {scenario_file}'}), 404
+        
+        # Read the scenario JSON file
+        try:
+            with open(scenario_path, 'r') as f:
+                scenario_data = json.load(f)
+        except json.JSONDecodeError as e:
+            return jsonify({'error': f'Invalid JSON in scenario file: {str(e)}'}), 400
+        except Exception as e:
+            return jsonify({'error': f'Error reading scenario file: {str(e)}'}), 500
+        
+        # Set up Google Gemini API
+        try:
+            api_key = os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                return jsonify({'error': 'GEMINI_API_KEY not configured'}), 500
+            
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Construct detailed prompt for predictive analysis
+            prompt = f"""You are a Predictive Analyst AI. Analyze the following factory failure scenario and provide a predictive simulation.
+
+Scenario Data:
+{json.dumps(scenario_data, indent=2)}
+
+Instructions:
+1. Write a concise, high-level summary of the business impact (e.g., "This failure could lead to...")
+2. Create a step-by-step timeline of the cascading effects based on the delay_minutes in the scenario
+3. Return your entire response in valid JSON format with the following structure:
+   {{
+     "summary": "Your business impact summary here",
+     "timeline": [
+       {{
+         "time": "T+0min",
+         "asset": "Asset name",
+         "event": "Description of what happens"
+       }},
+       {{
+         "time": "T+15min", 
+         "asset": "Asset name",
+         "event": "Description of cascading effect"
+       }}
+     ]
+   }}
+
+Important:
+- Base your analysis strictly on the provided scenario data
+- Use the delay_minutes values to create accurate timeline entries
+- Ensure your response is valid JSON that can be parsed
+- Keep the summary concise but informative
+- Make timeline entries specific and actionable
+
+Please provide your predictive analysis:"""
+            
+            # Send prompt to Gemini
+            response = model.generate_content(prompt)
+            
+            # Parse Gemini's JSON response
+            try:
+                # Clean up any markdown formatting that might interfere with JSON parsing
+                cleaned_response = response.text.strip()
+                # Remove any markdown code blocks if present
+                if cleaned_response.startswith('```json'):
+                    cleaned_response = cleaned_response[7:]
+                if cleaned_response.endswith('```'):
+                    cleaned_response = cleaned_response[:-3]
+                
+                parsed_response = json.loads(cleaned_response)
+                
+                # Validate response structure
+                if 'summary' not in parsed_response or 'timeline' not in parsed_response:
+                    return jsonify({'error': 'Invalid response structure from AI'}), 500
+                
+                return jsonify(parsed_response)
+                
+            except json.JSONDecodeError as e:
+                print(f"❌ Error parsing AI response as JSON: {e}")
+                print(f"Raw response: {response.text}")
+                return jsonify({'error': 'Failed to parse AI response as JSON'}), 500
+            
+        except Exception as e:
+            print(f"❌ Error with Gemini API: {e}")
+            return jsonify({'error': f'AI service error: {str(e)}'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error in predictive scenario: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=False, host='127.0.0.1', port=5000)

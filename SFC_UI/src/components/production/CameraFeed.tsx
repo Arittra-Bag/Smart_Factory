@@ -98,7 +98,7 @@ export default function CameraFeed({ onGestureDetected, currentGesture, producti
             <div className="absolute top-2 sm:top-4 right-2 sm:right-4 bg-black bg-opacity-75 text-white px-2 sm:px-3 py-1 sm:py-2 rounded-lg">
               <div className="text-xs sm:text-sm">
                 <div>Production: #{productionState.productionCount}</div>
-                <div>Quality: {productionState.qualityScore.toFixed(1)}%</div>
+                <div>Quality: {productionState.qualityScore.toFixed(2)}%</div>
               </div>
             </div>
             {/* Status overlay */}

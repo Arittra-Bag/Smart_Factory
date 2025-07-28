@@ -194,7 +194,9 @@ export default function AIAnalysisSectionImproved() {
           {/* Date Picker */}
           <div className="flex items-center space-x-2">
             <Calendar className="h-4 w-4 text-gray-500" />
+            <label htmlFor="analysis-date" className="text-sm font-medium text-gray-700">Date:</label>
             <input
+              id="analysis-date"
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
@@ -359,7 +361,23 @@ export default function AIAnalysisSectionImproved() {
                 <BarChart3 className="h-4 w-4 mr-2" />
                 Quality Assessment
               </h4>
-              <p className="text-purple-700 leading-relaxed">{analysis.qualityAssessment}</p>
+              <div className="text-purple-700 leading-relaxed">
+                {typeof analysis.qualityAssessment === 'string' ? (
+                  <p>{analysis.qualityAssessment}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {analysis.qualityAssessment.score !== undefined && (
+                      <p><strong>Score:</strong> {analysis.qualityAssessment.score}</p>
+                    )}
+                    {analysis.qualityAssessment.trend && (
+                      <p><strong>Trend:</strong> {analysis.qualityAssessment.trend}</p>
+                    )}
+                    {analysis.qualityAssessment.riskLevel && (
+                      <p><strong>Risk Level:</strong> {analysis.qualityAssessment.riskLevel}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

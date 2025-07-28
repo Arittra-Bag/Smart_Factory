@@ -144,9 +144,9 @@ export default function AnalyticsSection({ records }: AnalyticsSectionProps) {
         // Set statistics
         setStatistics({
           meanDefectRate: analyticsData.mean_defect_rate.toFixed(2),
-          avgBatchSize: analyticsData.avg_batch_size.toFixed(1),
+          avgBatchSize: analyticsData.avg_batch_size.toFixed(2),
           totalBatches: analyticsData.batch_sizes.length,
-          passRate: ((analyticsData.defect_rates.filter((rate: number) => rate <= 5).length / analyticsData.defect_rates.length) * 100).toFixed(1)
+          passRate: ((analyticsData.defect_rates.filter((rate: number) => rate <= 5).length / analyticsData.defect_rates.length) * 100).toFixed(2)
         });
       }
     } catch (err) {

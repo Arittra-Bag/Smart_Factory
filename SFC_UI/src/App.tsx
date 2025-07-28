@@ -4,13 +4,15 @@ import HomePage from './components/HomePage';
 import AdminDashboard from './components/admin/AdminDashboard';
 import ProductionPage from './components/production/ProductionPage';
 import DetectionPage from './components/DetectionPage';
+import AiCopilot from './components/shared/AiCopilot';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'admin' | 'control' | 'detection'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'admin' | 'control' | 'detection' | 'copilot'>('home');
   const [systemStatus] = useState<'Online' | 'Offline'>('Online');
 
   const handleNavigateToAdmin = () => setCurrentPage('admin');
   const handleNavigateToControl = () => setCurrentPage('control');
+  const handleNavigateToCopilot = () => setCurrentPage('copilot');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -27,11 +29,14 @@ function App() {
           <HomePage 
             onNavigateToAdmin={handleNavigateToAdmin}
             onNavigateToControl={handleNavigateToControl}
+            onNavigateToCopilot={handleNavigateToCopilot}
           />
         ) : currentPage === 'admin' ? (
           <AdminDashboard />
         ) : currentPage === 'control' ? (
           <ProductionPage />
+        ) : currentPage === 'copilot' ? (
+          <AiCopilot />
         ) : (
           <DetectionPage />
         )}

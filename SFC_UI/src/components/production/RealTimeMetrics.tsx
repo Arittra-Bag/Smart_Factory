@@ -40,7 +40,7 @@ export default function RealTimeMetrics({ productionState, machineStatus }: Real
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4 flex items-center space-x-3">
           <Gauge className="h-6 w-6 text-purple-600" />
           <div>
-            <div className="text-lg font-bold">{productionState.qualityScore.toFixed(1)}%</div>
+            <div className="text-lg font-bold">{productionState.qualityScore.toFixed(2)}%</div>
             <div className="text-xs text-gray-500">Quality Score</div>
           </div>
         </div>

@@ -4,9 +4,10 @@ import { Factory, Shield, Zap, TrendingUp, Users, Clock, CheckCircle, ArrowRight
 interface HomePageProps {
   onNavigateToAdmin: () => void;
   onNavigateToControl: () => void;
+  onNavigateToCopilot: () => void;
 }
 
-export default function HomePage({ onNavigateToAdmin, onNavigateToControl }: HomePageProps) {
+export default function HomePage({ onNavigateToAdmin, onNavigateToControl, onNavigateToCopilot }: HomePageProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* Hero Section */}
@@ -43,6 +44,13 @@ export default function HomePage({ onNavigateToAdmin, onNavigateToControl }: Hom
                 >
                   <BarChart3 className="h-5 w-5" />
                   <span>View Analytics</span>
+                </button>
+                <button
+                  onClick={onNavigateToCopilot}
+                  className="border-2 border-white/30 hover:border-white/50 text-white px-8 py-4 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center space-x-2"
+                >
+                  <Cpu className="h-5 w-5" />
+                  <span>AI Co-Pilot</span>
                 </button>
               </div>
             </div>

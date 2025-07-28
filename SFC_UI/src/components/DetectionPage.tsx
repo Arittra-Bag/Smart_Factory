@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Search, Download, Settings, BarChart3, Eye, EyeOff } from 'lucide-react';
-import { detectImage } from '../api';
+import { detectImage, getDetectionHistory } from '../api';
 
 interface DetectionResult {
   bbox: [number, number, number, number];
@@ -25,11 +25,18 @@ interface DetectionMetrics {
   image_size: { width: number; height: number };
 }
 
+interface DetectionHistoryItem {
+  id: number;
+  timestamp: string;
+  total_detections: number;
+}
+
 export default function DetectionPage() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [detectionResults, setDetectionResults] = useState<DetectionResult[]>([]);
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
+  const [detectionHistory, setDetectionHistory] = useState<DetectionHistoryItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showMetrics, setShowMetrics] = useState(true);
   const [detectionSettings, setDetectionSettings] = useState({
@@ -110,6 +117,11 @@ export default function DetectionPage() {
       const data = await detectImage(selectedImage, detectionSettings, enabledModels);
       setDetectionResults(data.detections || []);
       setMetrics(data.metrics || null);
+      
+              // Refresh detection history after new detection
+        const history = await getDetectionHistory();
+        setDetectionHistory(history);
+        console.log('Detection history refreshed:', history);
     } catch (error) {
       console.error('Error running detection:', error);
     } finally {
@@ -157,7 +169,7 @@ export default function DetectionPage() {
           // Draw label
           ctx.fillStyle = color;
           ctx.font = '14px Arial';
-          ctx.fillText(`${detection.model} (${(detection.confidence * 100).toFixed(1)}%)`, x1, y1 - 5);
+                          ctx.fillText(`${detection.model} (${(detection.confidence * 100).toFixed(2)}%)`, x1, y1 - 5);
         });
         
         // Download the image
@@ -193,6 +205,21 @@ export default function DetectionPage() {
     };
     img.src = imagePreview;
   };
+
+  // Fetch detection history on component mount
+  useEffect(() => {
+    const fetchDetectionHistory = async () => {
+      try {
+        const history = await getDetectionHistory();
+        setDetectionHistory(history);
+        console.log('Detection history loaded:', history);
+      } catch (error) {
+        console.error('Error fetching detection history:', error);
+      }
+    };
+
+    fetchDetectionHistory();
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -345,7 +372,7 @@ export default function DetectionPage() {
               
               <div>
                 <label htmlFor="motion-threshold" className="block text-sm font-medium text-gray-700 mb-1">
-                  Motion Threshold: {detectionSettings.motion_threshold.toFixed(1)}
+                  Motion Threshold: {detectionSettings.motion_threshold.toFixed(2)}
                 </label>
                 <input
                   id="motion-threshold"
@@ -467,55 +494,72 @@ export default function DetectionPage() {
         </div>
 
         {/* Metrics Dashboard */}
-        {showMetrics && metrics && (
+        {showMetrics && (
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Detection Metrics Dashboard</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <p className="text-sm text-blue-600 font-medium">Total Detections</p>
-                <p className="text-2xl font-bold text-blue-900">{metrics.total_detections}</p>
+            {/* Current Detection Metrics */}
+            {metrics && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <p className="text-sm text-blue-600 font-medium">Total Detections</p>
+                  <p className="text-2xl font-bold text-blue-900">{metrics.total_detections}</p>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <p className="text-sm text-green-600 font-medium">Enabled Models</p>
+                  <p className="text-2xl font-bold text-green-900">{metrics.enabled_models}/{metrics.total_models}</p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <p className="text-sm text-purple-600 font-medium">Processing Time</p>
+                  <p className="text-2xl font-bold text-purple-900">{metrics.processing_time.toFixed(2)}s</p>
+                </div>
+                <div className="bg-orange-50 p-4 rounded-lg">
+                  <p className="text-sm text-orange-600 font-medium">Image Size</p>
+                  <p className="text-2xl font-bold text-orange-900">{metrics.image_size.width}×{metrics.image_size.height}</p>
+                </div>
               </div>
-              <div className="bg-green-50 p-4 rounded-lg">
-                <p className="text-sm text-green-600 font-medium">Enabled Models</p>
-                <p className="text-2xl font-bold text-green-900">{metrics.enabled_models}/{metrics.total_models}</p>
-              </div>
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <p className="text-sm text-purple-600 font-medium">Processing Time</p>
-                <p className="text-2xl font-bold text-purple-900">{metrics.processing_time.toFixed(2)}s</p>
-              </div>
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <p className="text-sm text-orange-600 font-medium">Image Size</p>
-                <p className="text-2xl font-bold text-orange-900">{metrics.image_size.width}×{metrics.image_size.height}</p>
-              </div>
-            </div>
+            )}
 
-            {/* Model Performance */}
+            {/* Detection History */}
             <div>
-              <h3 className="text-md font-semibold text-gray-900 mb-3">Model Performance</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {Object.entries(metrics.model_stats).map(([modelName, stats]) => (
-                  <div key={modelName} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center">
-                      <div 
-                        className="w-3 h-3 rounded-full mr-3"
-                        style={{ backgroundColor: modelColors[modelName as keyof typeof modelColors] }}
-                      />
-                      <span className="text-sm font-medium text-gray-700">
-                        {modelName.replace('_', ' ')}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">
-                        Detections: <span className="font-medium">{stats.count}</span>
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        Avg Confidence: <span className="font-medium">{(stats.avg_confidence * 100).toFixed(1)}%</span>
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <h3 className="text-md font-semibold text-gray-900 mb-3">Detection History</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        ID
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Timestamp
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total Detections
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {detectionHistory.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {item.id}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {item.timestamp}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.total_detections}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+              {detectionHistory.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No detection history available
+                </div>
+              )}
             </div>
           </div>
         )}

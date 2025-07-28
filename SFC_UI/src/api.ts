@@ -184,4 +184,35 @@ export async function getProductionImage(): Promise<Blob> {
 export async function getProductionDefect() {
   const res = await api.get('/api/production/defect');
   return res.data;
+}
+
+// Detection history
+export async function getDetectionHistory() {
+  const res = await api.get('/api/detection-history');
+  return res.data;
+}
+
+// AI Co-Pilot and Simulation Control functions
+export async function getLiveSimulationData() {
+  const res = await api.get('/api/simulation/live_data');
+  return res.data;
+}
+
+export async function setSimulationState(state: string) {
+  const res = await api.post('/api/simulation/state', { state });
+  return res.data;
+}
+
+export async function sendCopilotMessage(query: string) {
+  const res = await api.post('/api/copilot/chat', { query }, {
+    timeout: 30000 // 30 seconds for AI response
+  });
+  return res.data;
+}
+
+export async function runPredictiveScenario(scenarioFile: string) {
+  const res = await api.post('/api/prediction/run_scenario', { scenario_file: scenarioFile }, {
+    timeout: 45000 // 45 seconds for predictive analysis
+  });
+  return res.data;
 } 

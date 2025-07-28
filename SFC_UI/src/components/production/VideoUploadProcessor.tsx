@@ -460,7 +460,7 @@ export default function VideoUploadProcessor({
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-600">
                   <span>Processing Progress</span>
-                  <span>{processingProgress.toFixed(1)}%</span>
+                  <span>{processingProgress.toFixed(2)}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div

@@ -26,7 +26,7 @@ export default function MetricsCards({ metrics }: MetricsCardsProps) {
     },
     {
       title: 'Defect Rate',
-      value: `${metrics.activeDefectRate}%`,
+      value: `${metrics.activeDefectRate.toFixed(2)}%`,
       trend: '-0.3%',
       trending: 'down',
       icon: AlertTriangle,

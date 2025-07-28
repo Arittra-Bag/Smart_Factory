@@ -1,0 +1,19 @@
+{
+  "name": "CNC Mill Overheating",
+  "description": "A critical CNC mill is showing signs of overheating. This typically leads to micro-fractures and tolerance errors in the parts it produces.",
+  "initial_impact": "Parts from CNC Mill #3 will have a 15% higher defect rate.",
+  "cascading_effects": [
+    {
+      "target_asset": "Assembly Line 2",
+      "effect": "Quality score will begin to drop due to faulty parts from the CNC Mill.",
+      "delay_minutes": 15,
+      "impact_description": "A 15-minute delay occurs as defective parts travel from the mill to the assembly line."
+    },
+    {
+      "target_asset": "Final Quality Control",
+      "effect": "Overall plant yield will decrease as more final products are rejected.",
+      "delay_minutes": 45,
+      "impact_description": "It takes 45 minutes for the defective assembled parts to reach final QC."
+    }
+  ]
+} 

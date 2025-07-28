@@ -233,7 +233,7 @@ export default function RealTimeVideoProcessor({
                       Defect Rate: <span className="font-medium">{defectResult.defect_rate.toFixed(2)}%</span>
                     </div>
                     <div className="text-xs text-gray-600">
-                      Confidence: <span className="font-medium">{(defectResult.prediction * 100).toFixed(1)}%</span>
+                      Confidence: <span className="font-medium">{(defectResult.prediction * 100).toFixed(2)}%</span>
                     </div>
                   </div>
                 ) : (
@@ -253,7 +253,7 @@ export default function RealTimeVideoProcessor({
                 </div>
                 <div className="bg-green-50 p-2 rounded">
                   <div className="text-green-800 font-medium">Quality</div>
-                  <div className="text-green-600">{productionState.qualityScore.toFixed(1)}%</div>
+                  <div className="text-green-600">{productionState.qualityScore.toFixed(2)}%</div>
                 </div>
                 <div className="bg-purple-50 p-2 rounded">
                   <div className="text-purple-800 font-medium">FPS</div>

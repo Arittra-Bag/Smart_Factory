@@ -1,0 +1,19 @@
+{
+  "name": "Conveyor Belt Slippage",
+  "description": "The main conveyor belt for Line 1 is experiencing intermittent slippage, causing items to be misaligned for robotic arms.",
+  "initial_impact": "Misalignment defects on Line 1 will increase by 20%.",
+  "cascading_effects": [
+    {
+      "target_asset": "Packaging Unit 1",
+      "effect": "The packaging robot will fail more often due to misaligned products, causing a bottleneck.",
+      "delay_minutes": 5,
+      "impact_description": "The packaging unit is immediately downstream from the belt."
+    },
+    {
+      "target_asset": "Shipping Department",
+      "effect": "Fewer packages will be ready for shipment, potentially delaying orders.",
+      "delay_minutes": 60,
+      "impact_description": "The impact on shipping schedules will be noticeable after about an hour of the bottleneck."
+    }
+  ]
+} 

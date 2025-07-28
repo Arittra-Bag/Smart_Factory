@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Factory, User, Power, Menu, X, Search } from 'lucide-react';
 
 interface HeaderProps {
-  currentPage: 'home' | 'admin' | 'control' | 'detection';
-  onPageChange: (page: 'home' | 'admin' | 'control' | 'detection') => void;
+  currentPage: 'home' | 'admin' | 'control' | 'detection' | 'copilot';
+  onPageChange: (page: 'home' | 'admin' | 'control' | 'detection' | 'copilot') => void;
   systemStatus: 'Online' | 'Offline';
 }
 
@@ -67,6 +67,17 @@ export default function Header({ currentPage, onPageChange, systemStatus }: Head
             >
               <span className="hidden lg:inline">Detection</span>
               <span className="lg:hidden">Detection</span>
+            </button>
+            <button
+              onClick={() => onPageChange('copilot')}
+              className={`px-3 lg:px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                currentPage === 'copilot'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <span className="hidden lg:inline">AI Co-Pilot</span>
+              <span className="lg:hidden">AI</span>
             </button>
           </nav>
 
@@ -134,6 +145,19 @@ export default function Header({ currentPage, onPageChange, systemStatus }: Head
                 }`}
               >
                 Detection
+              </button>
+              <button
+                onClick={() => {
+                  onPageChange('copilot');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`block w-full text-left px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  currentPage === 'copilot'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                }`}
+              >
+                AI Co-Pilot
               </button>
             </div>
           </div>
